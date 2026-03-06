@@ -14,7 +14,6 @@ members = [
     "pytja_registrar",
     "pytja_window",
     "pytja_sdk",
-    "pytja_storage_commander"
 ]
 
 [dependencies]

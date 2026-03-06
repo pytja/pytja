@@ -5183,14 +5183,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pytja_storage_commander"
-version = "0.1.0"
-dependencies = [
- "pytja_sdk",
- "serde_json",
-]
-
-[[package]]
 name = "pytja_window"
 version = "0.1.0"
 dependencies = [
