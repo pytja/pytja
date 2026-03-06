@@ -15,3 +15,7 @@ pub use error::PytjaError;
 pub use models::{User, FileNode, AuditLogEntry, Role};
 pub use config::AppConfig;
 pub use storage::{BlobStorage, FileSystemStorage, S3Storage, StorageType};
+
+#[cfg(target_os = "linux")]
+#[no_mangle]
+pub extern "C" fn __rust_probestack() {}
