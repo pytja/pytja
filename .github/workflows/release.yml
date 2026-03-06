@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*.*.*'
+# ENTERPRISE FIX: Erlaube dem GitHub-Roboter, ZIP-Dateien hochzuladen und Releases zu erstellen
+permissions:
+  contents: write
 
 jobs:
   build-binaries:
