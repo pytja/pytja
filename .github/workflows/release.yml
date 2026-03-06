@@ -27,6 +27,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # ENTERPRISE FIX: Installiert 'protoc' plattformübergreifend für Windows, Mac und Linux
+      - name: Install Protobuf Compiler
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Linux Dependencies
         if: runner.os == 'Linux'
         run: |
