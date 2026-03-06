@@ -1,0 +1,79 @@
+name: Enterprise Release Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-binaries:
+    name: Build Pytja Core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: pytja-linux
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: pytja-macos
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: pytja-windows.exe
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.0-dev libxdo-dev
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Core Components
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload Core Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: target/${{ matrix.target }}/release/pytja*
+
+  prepare-plugins:
+    name: Prepare Plugins
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Upload Plugin Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytja-plugins
+          path: plugins/*
+
+  publish-release:
+    name: Publish to GitHub Releases
+    needs: [build-binaries, prepare-plugins]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            pytja-linux/*
+            pytja-macos/*
+            pytja-windows.exe/*
+            pytja-plugins/*
+          generate_release_notes: true

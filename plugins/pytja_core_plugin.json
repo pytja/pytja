@@ -1,0 +1,12 @@
+{
+  "name": "pytja_core_plugin",
+  "version": "1.0.0",
+  "description": "Enterprise VFS & C2 Telemetry Agent",
+  "permissions": [
+    "fs_read",
+    "fs_write",
+    "network_tcp",
+    "display_ui"
+  ],
+  "autostart": true
+}

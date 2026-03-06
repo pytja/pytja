@@ -1,0 +1,11 @@
+{
+  "granted": {
+    "pytja_core_plugin": [
+      "fs_write",
+      "fs_read"
+    ],
+    "test_plugin": [
+      "fs_write"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "local_cache",
+    "path": "sqlite://data/pytja_local_cache.db",
+    "db_type": "Sqlite"
+  },
+  {
+    "name": "primary",
+    "path": "postgres://pytja:securepass@db:5432/pytja_db",
+    "db_type": "Postgres"
+  }
+]
