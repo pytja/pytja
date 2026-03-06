@@ -2,6 +2,7 @@
 name = "pytja"
 version = "1.0.0"
 edition = "2021"
+rust-version = "1.85.0" # <--- DIESE ZEILE HINZUFÜGEN
 description = "Secure Data Sandbox V1"
 
 [workspace]
