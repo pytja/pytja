@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*'
-# ENTERPRISE FIX: Erlaube dem GitHub-Roboter, ZIP-Dateien hochzuladen und Releases zu erstellen
+
 permissions:
   contents: write
 
@@ -30,7 +30,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ENTERPRISE FIX: Installiert 'protoc' plattformübergreifend für Windows, Mac und Linux
       - name: Install Protobuf Compiler
         uses: arduino/setup-protoc@v3
         with:
@@ -50,11 +49,21 @@ jobs:
       - name: Build Core Components
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Prepare Clean Release Binary
+        shell: bash
+        run: |
+          mkdir -p final_release
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${{ matrix.target }}/release/pytja.exe final_release/${{ matrix.artifact_name }}
+          else
+            cp target/${{ matrix.target }}/release/pytja final_release/${{ matrix.artifact_name }}
+          fi
+
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: target/${{ matrix.target }}/release/pytja*
+          path: final_release/*
 
   prepare-plugins:
     name: Prepare Plugins
