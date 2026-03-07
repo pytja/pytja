@@ -111,7 +111,7 @@ pub async fn start_registrar(output_dir: Option<String>) -> anyhow::Result<()> {
         description: Some("Admin User".into()),
     };
 
-    let _ = repo.create_user(&user).await;
+    repo.create_user(&user).await.map_err(|e| anyhow::anyhow!("Database Error: {}", e))?;
     println!("✅ User '{}' successfully registered in Enterprise Database.", username);
 
     Ok(())

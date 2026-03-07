@@ -55,6 +55,7 @@ impl PytjaRepository for SqliteDriver {
                 is_active BOOLEAN NOT NULL DEFAULT 1,
                 quota_used BIGINT NOT NULL DEFAULT 0,
                 quota_limit BIGINT NOT NULL DEFAULT 0,
+                description TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS file_nodes (

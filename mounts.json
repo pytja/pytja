@@ -3,5 +3,10 @@
     "name": "local_cache",
     "path": "sqlite:///Users/eliasschmolke/Library/Application Support/com.pytja.shell/pytja_local_cache.db",
     "db_type": "Sqlite"
+  },
+  {
+    "name": "primary",
+    "path": "postgres://pytja:securepass@localhost:5432/pytja_db",
+    "db_type": "Postgres"
   }
 ]

@@ -93,7 +93,7 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = pytja_core::telemetry::init_telemetry(&config.paths.logs_dir, "pytja_server.log");
 
     println!("{}", "========================================".green().bold());
-    println!("   PYTJA SERVER v2.0 (Enterprise)       ");
+    println!("   PYTJA SERVER v1.0 (Enterprise)       ");
     println!("{}", "========================================".green().bold());
 
     // ... Manager Setup ...
@@ -155,11 +155,15 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
         log_broadcast: tx.clone(),
     };
 
-    let addr_str = format!("{}:{}", config.server.host, config.server.port);
-    let addr = addr_str.parse()?;
+    let _addr_str = format!("{}:{}", config.server.host, config.server.port);
+    // --- PRO DUAL-STACK BINDING ---
+    // Wir binden an [::], was unter macOS/Linux automatisch IPv4 und IPv6 abdeckt.
+    let addr: std::net::SocketAddr = "[::]:50051".parse()
+        .expect("CRITICAL: Invalid Dual-Stack Address");
 
-    // --- TLS SETUP ---
-    let mut builder = Server::builder();
+    let mut builder = Server::builder()
+        .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
+        .tcp_nodelay(true); // Performance-Tuning für geringe Latenz
 
     if let Some(tls_config) = &config.tls {
         if tls_config.enabled {
@@ -172,7 +176,7 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
                 (Ok(cert), Ok(key)) => {
                     let identity = Identity::from_pem(cert, key);
                     builder = builder.tls_config(ServerTlsConfig::new().identity(identity))?;
-                    println!("✅ TLS Active.");
+                    println!("✅ TLS Security Active (Dual-Stack Mode).");
                 },
                 _ => {
                     println!("{}", format!("❌ FATAL: Could not load certs from config paths: {} / {}", tls_config.cert_path, tls_config.key_path).red());
@@ -184,8 +188,7 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else {
         println!("{}", "❌ CRITICAL: NO TLS CONFIG FOUND.".red().bold());
-        println!("The server is trying to start UNENCRYPTED, but the client expects TLS.");
-        println!("Please add a [tls] section to config/default.toml");
+        return Err("Server security policy requires TLS configuration.".into());
     }
 
     println!("{} {}", "🚀 Server listening on".green(), addr);
