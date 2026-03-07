@@ -16,14 +16,13 @@ use hmac::Hmac;
 use sha2::Sha256;
 
 pub async fn start_registrar(output_dir: Option<String>) -> anyhow::Result<()> {
-    println!("--- PYTJA IDENTITY REGISTRAR (SECURE V2) ---");
+    println!("--- PYTJA IDENTITY REGISTRAR (SECURE V1) ---");
 
     let config = AppConfig::new().map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     let db_url = config.database.primary_url;
 
-    println!("🔗 Connecting to Database at: {}", db_url);
+    println!("Connecting to Database at: {}", db_url);
 
-    // Dynamische Treiber-Auswahl (Polymorphismus via Trait Object)
     let repo: Arc<dyn PytjaRepository> = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
         let driver = PostgresDriver::new(&db_url).await?;
         driver.init().await?;
@@ -37,19 +36,16 @@ pub async fn start_registrar(output_dir: Option<String>) -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Unsupported database URL protocol: {}", db_url));
     };
 
-    // Dynamische Pfad-Auflösung
     let save_dir = output_dir.unwrap_or_else(|| ".".to_string());
     let save_path = Path::new(&save_dir);
     if !save_path.exists() {
         fs::create_dir_all(save_path)?;
     }
 
-    // Input
     let username: String = Input::new().with_prompt("Username").interact_text()?;
 
-    // Check if user exists
     if repo.user_exists(&username).await.unwrap_or(false) {
-        println!("⚠️  User '{}' already exists in DB.", username);
+        println!("User '{}' already exists in DB.", username);
     }
 
     let password = Password::new()
@@ -57,24 +53,21 @@ pub async fn start_registrar(output_dir: Option<String>) -> anyhow::Result<()> {
         .with_confirmation("Confirm Password", "Mismatch")
         .interact()?;
 
-    // Crypto Gen
     println!("Generating keys...");
     let mut csprng = OsRng;
     let signing_key = SigningKey::generate(&mut csprng);
     let pub_key_bytes = signing_key.verifying_key().to_bytes().to_vec();
     let priv_key_bytes = signing_key.to_bytes();
 
-    // Encryption (AES-256-GCM)
     let mut salt = [0u8; 16];
     csprng.fill_bytes(&mut salt);
 
     let mut nonce_bytes = [0u8; 12];
     csprng.fill_bytes(&mut nonce_bytes);
 
-    // Key Derivation
     let mut derived_key = [0u8; 32];
     pbkdf2::<Hmac<Sha256>>(password.as_bytes(), &salt, 100_000, &mut derived_key)
-        .expect("Kritischer Fehler bei der Schlüsselableitung");
+        .expect("Critical error in key derivation");
 
     let cipher = Aes256Gcm::new(&derived_key.into());
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -82,7 +75,6 @@ pub async fn start_registrar(output_dir: Option<String>) -> anyhow::Result<()> {
     let encrypted_priv = cipher.encrypt(nonce, priv_key_bytes.as_ref())
         .map_err(|e| anyhow::anyhow!("Encryption failed: {}", e))?;
 
-    // File Blob
     let mut payload = Vec::new();
     payload.extend_from_slice(&salt);
     payload.extend_from_slice(&nonce_bytes);
@@ -91,16 +83,14 @@ pub async fn start_registrar(output_dir: Option<String>) -> anyhow::Result<()> {
     let priv_b64 = general_purpose::STANDARD.encode(&payload);
     let pub_b64 = general_purpose::STANDARD.encode(&pub_key_bytes);
 
-    // Dynamisches Speichern am Zielort
     let filename_path = save_path.join(format!("{}.pytja", username));
     let filename = filename_path.to_string_lossy().to_string();
 
     let content = format!("PYTJA-ID-V2-ENCRYPTED\nUSER:{}\nPRIV:{}\nPUB:{}\nROLE:admin", username, priv_b64, pub_b64);
 
     fs::write(&filename_path, content)?;
-    println!("✅ Identity saved to: {}", filename);
+    println!("Identity saved to: {}", filename);
 
-    // DB Save
     let user = User {
         username: username.clone(),
         public_key: pub_key_bytes,
@@ -112,7 +102,7 @@ pub async fn start_registrar(output_dir: Option<String>) -> anyhow::Result<()> {
     };
 
     repo.create_user(&user).await.map_err(|e| anyhow::anyhow!("Database Error: {}", e))?;
-    println!("✅ User '{}' successfully registered in Enterprise Database.", username);
+    println!("User '{}' successfully registered in Enterprise Database.", username);
 
     Ok(())
 }

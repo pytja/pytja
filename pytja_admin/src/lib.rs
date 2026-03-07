@@ -7,13 +7,11 @@ use console::Term;
 use client::AdminClient;
 
 pub async fn start_admin() -> anyhow::Result<()> {
-    // 1. Verbindung aufbauen
-    // FIX: Nutze HTTPS und 'localhost', damit das TLS-Zertifikat greift und der gRPC Frame-Error verschwindet!
+    // establish connection
     let mut client = AdminClient::connect("https://localhost:50051".to_string()).await
         .expect("Could not connect to Pytja Server. Is it running or is the cert missing?");
 
-    // 2. Login-Screen & Authentifizierung
-    // Hier fragen wir nach dem Pfad zur Identitätsdatei (z.B. vom USB-Stick)
+    // Login-Screen & Authentication
     Term::stdout().clear_screen()?;
     println!("╔══════════════════════════════════════════╗");
     println!("║      PYTJA COMMAND CENTER (PCC) v1.0     ║");
@@ -23,32 +21,29 @@ pub async fn start_admin() -> anyhow::Result<()> {
 
     let identity_path: String = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Path to Admin Identity File (.pytja)")
-        .default("./usb_drive/admin.pytja".into()) // Standard-Pfad für schnelles Testen
+        .default("./identity/admin.pytja".into())
         .interact_text()?;
 
     println!("Authenticating...");
-
-    // Der Handshake (Challenge-Response) mit dem Server
+    
     match client.login_with_identity(&identity_path).await {
         Ok(_) => {
-            println!("✅ Login successful as '{}'. Welcome, Admin.", client.username);
-            // Kurze Pause, damit man die Erfolgsmeldung sieht
+            println!("Login successful as '{}'. Welcome, Admin.", client.username);
             std::thread::sleep(std::time::Duration::from_millis(1000));
         },
         Err(e) => {
-            println!("❌ Authentication failed: {}", e);
-            return Ok(()); // Programm beenden bei Fehler
+            println!("Authentication failed: {}", e);
+            return Ok(());
         }
     }
 
-    // 3. Main Loop (Das Hauptmenü)
+    // Main Loop
     loop {
-        // Screen clearen für "Tool"-Feeling
         Term::stdout().clear_screen()?;
 
         println!("╔══════════════════════════════════════════╗");
         println!("║      PYTJA COMMAND CENTER (PCC) v1.0     ║");
-        println!("║      User: {:<29} ║", client.username); // Zeigt eingeloggten Admin an
+        println!("║      User: {:<29} ║", client.username);
         println!("╚══════════════════════════════════════════╝");
         println!();
 

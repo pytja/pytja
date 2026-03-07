@@ -3,7 +3,6 @@ host = "127.0.0.1"
 port = 50051
 
 [database]
-# WICHTIG: Relativer Pfad, damit es im entpackten Ordner sofort klappt
 primary_url = "sqlite://pytja.db"
 
 [storage]

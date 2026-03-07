@@ -11,7 +11,6 @@ path = "src/lib.rs"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 colored = "2.0"
-# Wir nutzen dialoguer für Passwörter, das ist robuster als rpassword
 dialoguer = "0.10"
 chrono = "0.4"
 
@@ -21,7 +20,7 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
 base64 = "0.21"
 
-# Verschlüsselung (Für den Private Key auf dem USB Stick)
+# Encryption
 aes-gcm = "0.10"
 pbkdf2 = "0.12"
 hmac = "0.12"

@@ -1,4 +1,4 @@
-use crate::models::{User, Role, FileNode, AuditLog}; // AuditLog hinzugefügt
+use crate::models::{User, Role, FileNode, AuditLog};
 use crate::error::PytjaError;
 use async_trait::async_trait;
 
@@ -11,7 +11,7 @@ pub trait PytjaRepository: Send + Sync {
     async fn user_exists(&self, username: &str) -> Result<bool, PytjaError>;
     async fn save_user_keys(&self, username: &str, public_key: &[u8], private_key_encrypted: &[u8]) -> Result<(), PytjaError>;
 
-    // NEU: User Management
+    // User Management
     async fn list_users(&self) -> Result<Vec<User>, PytjaError>;
     async fn create_user(&self, user: &User) -> Result<(), PytjaError>;
     async fn update_user_status(&self, username: &str, is_active: bool, role: &str) -> Result<(), PytjaError>;
@@ -44,18 +44,15 @@ pub trait PytjaRepository: Send + Sync {
     async fn get_audit_logs(&self, limit: u32, user_filter: Option<String>) -> Result<Vec<AuditLog>, PytjaError>;
     // --- INVITE SYSTEM ---
     async fn create_invite(&self, code: &str, role: &str, max_uses: u32, quota_limit: u64, creator: &str) -> Result<(), PytjaError>;
-    // Gibt zurück: (role, quota_limit, max_uses, used_count)
     async fn get_invite(&self, code: &str) -> Result<Option<(String, u64, u32, u32)>, PytjaError>;
     async fn increment_invite_use(&self, code: &str) -> Result<(), PytjaError>;
     async fn revoke_invite(&self, code: &str) -> Result<(), PytjaError>;
-    // Gibt zurück: (code, role, max_uses, used_count, created_by, created_at)
     async fn list_invites(&self) -> Result<Vec<(String, String, u32, u32, String, String)>, PytjaError>;
 
-    // --- SECURE QUERY PUSHDOWN (RBAC auf Datenbank-Ebene) ---
+    // --- SECURE QUERY PUSHDOWN ---
     async fn list_directory_secure(&self, path: &str, username: &str, role: &str) -> Result<Vec<FileNode>, PytjaError>;
     async fn list_recursive_secure(&self, path: &str, username: &str, role: &str) -> Result<Vec<FileNode>, PytjaError>;
     async fn get_node_secure(&self, path: &str, username: &str, role: &str) -> Result<Option<FileNode>, PytjaError>;
-    // Lädt einen Chunk einer Datei für performantes Streaming (ohne RAM-Overhead)
     async fn read_node_chunk_secure(&self, path: &str, username: &str, role: &str, offset: usize, size: usize) -> Result<Vec<u8>, PytjaError>;
     async fn query_metadata_secure(&self, query: &str, username: &str, role: &str) -> Result<Vec<FileNode>, PytjaError>;
 }

@@ -1,5 +1,5 @@
 use crate::client::AdminClient;
-use dialoguer::{theme::ColorfulTheme, Select, Input, MultiSelect, Confirm}; // Confirm hinzugefügt
+use dialoguer::{theme::ColorfulTheme, Select, Input, MultiSelect, Confirm};
 use comfy_table::{Table, presets::UTF8_FULL, Cell, Color, Attribute};
 use console::Term;
 
@@ -44,7 +44,6 @@ async fn list_roles(client: &mut AdminClient) -> anyhow::Result<()> {
     table.set_header(vec!["Role Name", "Permissions (Scopes)"]);
 
     for role in roles {
-        // Permissions schön formatieren
         let perms_display = if role.permissions.is_empty() {
             "No permissions".to_string()
         } else {
@@ -74,14 +73,14 @@ async fn create_role(client: &mut AdminClient) -> anyhow::Result<()> {
         .interact_text()?;
 
     match client.create_role(name.clone()).await {
-        Ok(_) => println!("✅ Role '{}' created. You can now add permissions to it.", name),
-        Err(e) => println!("❌ Error: {}", e),
+        Ok(_) => println!("Role '{}' created. You can now add permissions to it.", name),
+        Err(e) => println!("Error: {}", e),
     }
     Ok(())
 }
 
 async fn add_permission_wizard(client: &mut AdminClient) -> anyhow::Result<()> {
-    // 1. Rolle auswählen
+    // Choose role
     let roles = client.list_roles().await?;
     if roles.is_empty() {
         println!("No roles available.");
@@ -96,15 +95,15 @@ async fn add_permission_wizard(client: &mut AdminClient) -> anyhow::Result<()> {
 
     let target_role = &role_names[selection];
 
-    // 2. Permission auswählen (Standard-Liste + Custom)
+    // Choose permission
     let standard_perms = vec![
-        "core:fs:read",   // Lesen
-        "core:fs:write",  // Schreiben (Upload, Delete)
-        "core:exec",      // Scripte ausführen
-        "core:admin:read", // Admin Infos sehen
-        "core:admin:sys",  // Mounts verwalten
-        "core:admin:users",// User verwalten
-        "core:admin:roles" // Rollen verwalten
+        "core:fs:read",   // read
+        "core:fs:write",  // write (Upload, Download)
+        "core:exec",      // execute script
+        "core:admin:read", // sea admin infos
+        "core:admin:sys",  // manage mounts
+        "core:admin:users",// manage users
+        "core:admin:roles" // manage roles
     ];
 
     println!("\nAvailable Standard Permissions:");
@@ -116,10 +115,6 @@ async fn add_permission_wizard(client: &mut AdminClient) -> anyhow::Result<()> {
     let _perm_input: String = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Enter Permission (Type exact string or custom)")
         .interact_text()?;
-
-    // Validierung (einfach, um Tippfehler bei Zahlen zu vermeiden, falls User 1 eingibt statt String)
-    // Hier erlauben wir einfach den String, den der User eingibt (für Flexibilität).
-    // Besser: MultiSelect für Standard-Perms. Machen wir es professionell:
 
     // REDO UI for Permission Selection:
     let use_list = Confirm::with_theme(&ColorfulTheme::default())
@@ -150,6 +145,6 @@ async fn add_permission_wizard(client: &mut AdminClient) -> anyhow::Result<()> {
         }
     }
 
-    println!("✅ Done.");
+    println!("Done.");
     Ok(())
 }

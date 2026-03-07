@@ -16,13 +16,10 @@ pub struct Identity {
 }
 
 impl Identity {
-    /// Enterprise Pfad-Auflösung
     pub fn load_or_prompt(provided_path: Option<String>) -> Result<Self> {
         let mut path_str = match provided_path {
-            // 1. Priorität: Der Nutzer hat --identity /pfad/zur.pytja übergeben
             Some(p) => p,
-
-            // 2. Priorität: Interaktiver Fallback, wenn nichts übergeben wurde
+            
             None => {
                 println!("{}", "No identity path provided via arguments or environment.".yellow());
                 Input::<String>::new()
@@ -30,8 +27,7 @@ impl Identity {
                     .interact_text()?
             }
         };
-
-        // NEU: Tilde (~) Expansion für Mac/Linux
+        
         if path_str.starts_with("~/") {
             if let Ok(home) = std::env::var("HOME") {
                 path_str = path_str.replacen("~", &home, 1);
@@ -43,7 +39,6 @@ impl Identity {
             return Err(anyhow!("Identity file not found at: {}", path_str));
         }
 
-        // Lädt, parst und entschlüsselt die Datei
         Self::load(&path_str)
     }
 
@@ -65,11 +60,10 @@ impl Identity {
 
         println!("Identity: {} ({})", username, path);
         let password = Password::new().with_prompt("Enter Password").interact()?;
-
-        // Decode Blob
+        
         let blob = general_purpose::STANDARD.decode(&priv_b64).context("Base64 decode failed")?;
 
-        if blob.len() < 28 { // 16 Salt + 12 Nonce
+        if blob.len() < 28 {
             return Err(anyhow!("File corrupted (too short)"));
         }
 

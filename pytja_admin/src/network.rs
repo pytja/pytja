@@ -3,8 +3,8 @@ use pytja_proto::pytja::pytja_service_client::PytjaServiceClient;
 use pytja_proto::pytja::{
     LoginRequest, GetSessionsRequest, ListRolesRequest,
     ChallengeRequest, KickUserRequest, BanUserRequest,
-    ChangeRoleRequest, GetMountsRequest, AddMountRequest, // Neue Request Typen
-    SessionInfo, RoleInfo, MountInfo // Neue Daten Typen
+    ChangeRoleRequest, GetMountsRequest, AddMountRequest,
+    SessionInfo, RoleInfo, MountInfo
 };
 use tonic::transport::Channel;
 use tonic::Request;
@@ -23,18 +23,18 @@ impl AdminClient {
     }
 
     pub async fn login(&mut self, username: &str, key_path: &str, password: &str) -> Result<()> {
-        // 1. Key laden & entschlüsseln
+        // load key & decrypt
         let encrypted_pem = fs::read_to_string(key_path)?;
         let signing_key = CryptoService::decrypt_private_key_local(&encrypted_pem, password)?;
 
-        // 2. Challenge holen
+        // get challenge
         let challenge_req = Request::new(ChallengeRequest { username: username.to_string() });
         let challenge_resp = self.client.get_challenge(challenge_req).await?.into_inner();
 
-        // 3. Signieren
+        // sign
         let signature = CryptoService::sign_message(&signing_key, challenge_resp.challenge.as_bytes());
 
-        // 4. Login
+        // Login
         let login_req = Request::new(LoginRequest {
             username: username.to_string(),
             challenge: challenge_resp.challenge,
@@ -92,8 +92,6 @@ impl AdminClient {
         Ok(resp.message)
     }
 
-    // --- NEUE FUNKTIONEN (Phase 2 & 3) ---
-
     pub async fn change_role(&mut self, username: String, new_role: String) -> Result<String> {
         let req = self.auth_req(ChangeRoleRequest { username, new_role });
         let resp = self.client.change_user_role(req).await?.into_inner();
@@ -109,7 +107,7 @@ impl AdminClient {
     pub async fn add_mount(&mut self, name: String, db_type: String, connection: String) -> Result<String> {
         let req = self.auth_req(AddMountRequest {
             name,
-            r#type: db_type, // 'type' ist ein Keyword in Rust -> r#type
+            r#type: db_type,
             connection_string: connection,
         });
         let resp = self.client.add_mount(req).await?.into_inner();

@@ -50,9 +50,7 @@ impl PytjaRepository for PostgresDriver {
             .execute(&self.pool)
             .await
             .map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
-
-        // Enterprise Seed: Automatisch die Super-Admin-Rolle anlegen
-        // Wir speichern die Berechtigungen als sauberen JSON-String
+        
         sqlx::query(
             "INSERT INTO roles (name, permissions) VALUES ('admin', '[\"core:fs:read\", \"core:fs:write\", \"core:fs:execute\", \"core:fs:delete\", \"core:admin:users\", \"core:admin:roles\", \"core:admin:system\", \"core:admin:mounts\", \"core:admin:invites\"]')
              ON CONFLICT (name) DO NOTHING"
@@ -146,7 +144,7 @@ impl PytjaRepository for PostgresDriver {
     }
 
     async fn save_user_keys(&self, _username: &str, _public_key: &[u8], _private_key_encrypted: &[u8]) -> Result<(), PytjaError> {
-        Ok(()) // Stub
+        Ok(())
     }
 
     async fn list_users(&self) -> Result<Vec<User>, PytjaError> {
@@ -202,7 +200,6 @@ impl PytjaRepository for PostgresDriver {
     }
 
     async fn get_node(&self, path: &str) -> Result<Option<FileNode>, PytjaError> {
-        // FIX: Manuelles Mapping statt query_as!
         let row = sqlx::query("SELECT * FROM file_nodes WHERE path = $1")
             .bind(path)
             .fetch_optional(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
@@ -227,9 +224,7 @@ impl PytjaRepository for PostgresDriver {
     }
 
     async fn list_directory(&self, path: &str) -> Result<Vec<FileNode>, PytjaError> {
-        // Simple prefix match, enterprise needs better logic
         let search = format!("{}/%", path.trim_end_matches('/'));
-        // FIX: Manuelles Mapping
         let rows = sqlx::query("SELECT * FROM file_nodes WHERE path LIKE $1")
             .bind(search)
             .fetch_all(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
@@ -261,7 +256,6 @@ impl PytjaRepository for PostgresDriver {
         sqlx::query("UPDATE file_nodes SET path = $2 WHERE path = $1")
             .bind(src).bind(dst)
             .execute(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
-        // Recursive update simplified
         Ok(())
     }
 
@@ -426,7 +420,6 @@ impl PytjaRepository for PostgresDriver {
         let search = format!("{}/%", path.trim_end_matches('/'));
         let is_admin = role == "admin";
 
-        // Postgres nutzt $1, $2 und echte Booleans (true) statt 1
         let rows = sqlx::query("SELECT * FROM file_nodes WHERE path LIKE $1 AND ($2 = true OR permissions > 0 OR owner = $3)")
             .bind(&search).bind(is_admin).bind(username)
             .fetch_all(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
@@ -506,17 +499,13 @@ impl PytjaRepository for PostgresDriver {
 
     async fn read_node_chunk_secure(&self, path: &str, username: &str, role: &str, offset: usize, size: usize) -> Result<Vec<u8>, PytjaError> {
         let is_admin = role == "admin";
-
-        // WICHTIG: PostgreSQL SUBSTRING ist ebenfalls 1-basiert!
         let pg_offset = offset + 1;
 
-        // PERFORMANCE MAGIE: SUBSTRING(bytea FROM start FOR length) lädt nur den Chunk
-        // Wir casten $1::int und $2::int explizit, damit sqlx bei Postgres nicht durcheinander kommt.
         let row = sqlx::query("SELECT SUBSTRING(content FROM $1::int FOR $2::int) as chunk FROM file_nodes WHERE path = $3 AND ($4 = true OR permissions > 0 OR owner = $5)")
-            .bind(pg_offset as i32) // Postgres bytea max size ist 1GB, daher reicht i32 perfekt
+            .bind(pg_offset as i32)
             .bind(size as i32)
             .bind(path)
-            .bind(is_admin) // Echter Boolean für Postgres
+            .bind(is_admin)
             .bind(username)
             .fetch_optional(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
 
@@ -525,19 +514,17 @@ impl PytjaRepository for PostgresDriver {
             let chunk: Vec<u8> = r.try_get("chunk").unwrap_or_default();
             Ok(chunk)
         } else {
-            // Wenn die Datei nicht existiert oder Rechte fehlen, geben wir leer zurück
             Ok(vec![])
         }
     }
 
     async fn query_metadata_secure(&self, query: &str, username: &str, role: &str) -> Result<Vec<FileNode>, PytjaError> {
         let is_admin = role == "admin";
-        let search = format!("%{}%", query); // Performante Volltextsuche im JSON
-
-        // Der komplette, korrekte Postgres-SQL-Befehl
+        let search = format!("%{}%", query);
+        
         let rows = sqlx::query("SELECT * FROM file_nodes WHERE metadata IS NOT NULL AND metadata LIKE $1 AND ($2 = true OR permissions > 0 OR owner = $3)")
             .bind(&search)
-            .bind(is_admin) // Postgres nutzt echte Booleans (true/false) statt 1/0
+            .bind(is_admin)
             .bind(username)
             .fetch_all(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
 

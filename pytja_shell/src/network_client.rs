@@ -24,12 +24,10 @@ pub struct PytjaClient {
 }
 
 impl PytjaClient {
-    /// Baut eine TLS-gesicherte Verbindung zum Enterprise Server auf.
     pub async fn connect(server_url: String, signing_key: Vec<u8>, username: String, ca_cert_pem: Option<String>, e2e_key: [u8; 32]) -> Result<Self> {
         let mut endpoint = Channel::from_shared(server_url.clone())
             .context("Invalid Server URL")?;
 
-        // TLS Konfiguration (Enterprise Grade Security)
         if server_url.starts_with("https") {
             let mut tls = ClientTlsConfig::new().domain_name("localhost");
             if let Some(pem) = ca_cert_pem {
@@ -61,7 +59,6 @@ impl PytjaClient {
         *lock = Some(t.to_string());
     }
 
-    // Auth-Header Injection Helper
     async fn auth_req<T>(&self, msg: T) -> Request<T> {
         let mut req = Request::new(msg);
         let lock = self.token.lock().await;
@@ -91,7 +88,7 @@ impl PytjaClient {
         let req = Request::new(LoginRequest {
             username: username.to_string(),
             challenge: challenge.to_string(),
-            signature, // String direkt übergeben
+            signature,
         });
         let resp = client.login(req).await?.into_inner();
         Ok(resp)
@@ -120,7 +117,6 @@ impl PytjaClient {
     pub async fn create_node(&self, path: &str, is_folder: bool, content: Vec<u8>, lock_pass: Option<String>, owner: &str) -> Result<String> {
         let mut client = self.client.lock().await;
 
-        // ENTERPRISE E2EE: Inhalt vor dem Senden verschlüsseln
         let final_content = if !is_folder && !content.is_empty() {
             pytja_core::crypto::CryptoService::encrypt_e2e(&self.e2e_key, &content)
                 .map_err(|e| anyhow!("E2EE Encryption failed: {}", e))?
@@ -148,7 +144,6 @@ impl PytjaClient {
         let resp = client.read_file(req).await?.into_inner();
 
         if resp.success {
-            // ENTERPRISE E2EE: Inhalt nach dem Empfangen entschlüsseln
             let decrypted_content = if !resp.content.is_empty() {
                 pytja_core::crypto::CryptoService::decrypt_e2e(&self.e2e_key, &resp.content)
                     .map_err(|e| anyhow!("E2EE Decryption failed (Integrity breach): {}", e))?
@@ -253,12 +248,11 @@ impl PytjaClient {
         };
 
         let file_path = local_path.to_string();
-        let e2e_key = self.e2e_key; // Kopie für den async_stream Block
+        let e2e_key = self.e2e_key;
 
         let outbound = async_stream::stream! {
             yield UploadRequest { data: Some(Data::Metadata(file_meta)) };
 
-            // ENTERPRISE E2EE: Datei komplett laden, verschlüsseln und asynchron streamen
             if let Ok(mut file) = tokio::fs::File::open(&file_path).await {
                 let mut raw_content = Vec::new();
                 if file.read_to_end(&mut raw_content).await.is_ok() {
@@ -301,14 +295,12 @@ impl PytjaClient {
 
         let mut stream = client.download_file(req).await?.into_inner();
 
-        // ENTERPRISE E2EE: Alle verschlüsselten Chunks vom Server sammeln
         let mut encrypted_buffer = Vec::new();
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.context("Stream error")?;
             encrypted_buffer.extend_from_slice(&chunk.content);
         }
 
-        // AES-GCM Entschlüsselung und Integritätsprüfung
         let decrypted_bytes = pytja_core::crypto::CryptoService::decrypt_e2e(&self.e2e_key, &encrypted_buffer)
             .context("E2EE Decryption failed (File manipulated or wrong key!)")?;
 

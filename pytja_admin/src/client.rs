@@ -16,7 +16,7 @@ impl AdminClient {
     pub async fn connect(url: String) -> anyhow::Result<Self> {
         let mut endpoint = Channel::from_shared(url.clone())?;
 
-        // TLS Integration für Enterprise Sicherheit
+        // TLS Integration
         if url.starts_with("https") {
             let possible_paths = vec![
                 PathBuf::from("server.crt"),
@@ -35,7 +35,7 @@ impl AdminClient {
             if let Some(pem) = ca_cert {
                 let ca = Certificate::from_pem(pem);
                 let tls = ClientTlsConfig::new()
-                    .domain_name("localhost") // Muss zum Server Cert CN passen
+                    .domain_name("localhost")
                     .ca_certificate(ca);
 
                 endpoint = endpoint.tls_config(tls)?;
@@ -53,11 +53,10 @@ impl AdminClient {
     pub async fn login_with_identity(&mut self, path: &str) -> anyhow::Result<bool> {
         println!("Authenticating via Identity...");
 
-        // Nutzt die zentrale Enterprise-Logik (inkl. Tilde-Auflösung und Entschlüsselung)
         let identity = Identity::load_or_prompt(Some(path.to_string()))?;
         self.username = identity.username.clone();
 
-        // 2. Challenge
+        // Challenge
         let chal_req = Request::new(pytja::ChallengeRequest { username: self.username.clone() });
         let chal_resp: pytja::ChallengeResponse = self.client.get_challenge(chal_req).await?.into_inner();
 
@@ -65,7 +64,7 @@ impl AdminClient {
             return Err(anyhow::anyhow!("User not found on server"));
         }
 
-        // 3. Sign & Login
+        // Sign & Login
         use base64::{Engine as _, engine::general_purpose};
         let signature_bytes = identity.keypair.sign(chal_resp.challenge.as_bytes()).to_bytes().to_vec();
         let signature_str = general_purpose::STANDARD.encode(&signature_bytes);
@@ -112,7 +111,7 @@ impl AdminClient {
             public_key: pub_key,
             role,
             quota_limit: quota,
-            invite_code: String::new(), // NEU: Wir senden einen leeren String mit, da diese Admin-Funktion aktuell nicht genutzt wird
+            invite_code: String::new(),
         });
         self.client.register_user(req).await?;
         Ok(())

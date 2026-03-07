@@ -86,18 +86,12 @@ impl PytjaRepository for SqliteDriver {
             .execute(&self.pool)
             .await
             .map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
-
-        // --- ENTERPRISE MIGRATION ---
-        // Falls die Tabelle von vorher existiert, fügen wir die Metadaten-Spalte "on-the-fly" hinzu.
-        // Schlägt geräuschlos fehl, falls die Spalte bereits existiert.
+        
         let _ = sqlx::query("ALTER TABLE file_nodes ADD COLUMN metadata TEXT;")
             .execute(&self.pool).await;
-        // ----------------------------
 
-        // Performance Index für die korrekte Tabelle 'file_nodes'
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_files_owner ON file_nodes(owner);").execute(&self.pool).await.ok();
 
-        // Init Default Roles if missing
         let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM roles")
             .fetch_one(&self.pool).await.unwrap_or(0);
 
@@ -242,7 +236,6 @@ impl PytjaRepository for SqliteDriver {
     }
 
     async fn list_directory(&self, path: &str) -> Result<Vec<FileNode>, PytjaError> {
-        // Hier NUR direkte Kinder anzeigen (Standard LS)
         let search = format!("{}/%", path.trim_end_matches('/'));
         let rows = sqlx::query("SELECT * FROM file_nodes WHERE path LIKE ?").bind(search)
             .fetch_all(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
@@ -250,7 +243,6 @@ impl PytjaRepository for SqliteDriver {
         let mut nodes = Vec::new();
         for row in rows {
             let p: String = row.try_get("path").unwrap_or_default();
-            // Filter: Nur direkte Kinder
             let relative = p.strip_prefix(path).unwrap_or(&p).trim_start_matches('/');
             if relative.contains('/') { continue; }
 
@@ -273,14 +265,11 @@ impl PytjaRepository for SqliteDriver {
         }
         Ok(nodes)
     }
-
-    // FIX: Rekursive Implementierung für Tree
+    
     async fn list_recursive(&self, path: &str) -> Result<Vec<FileNode>, PytjaError> {
-        // 1. Suche nach ALLEM was mit dem Pfad beginnt (SQL LIKE)
         let mut query_str = "SELECT * FROM file_nodes WHERE path LIKE ?";
         let search_pattern = format!("{}/%", path.trim_end_matches('/'));
-
-        // Spezieller Fall für Root "/" -> Alles holen
+        
         if path == "/" {
             query_str = "SELECT * FROM file_nodes";
         }
@@ -302,7 +291,7 @@ impl PytjaRepository for SqliteDriver {
                 name: row.try_get("name").unwrap_or_default(),
                 owner: row.try_get("owner").unwrap_or_default(),
                 is_folder: row.try_get("is_folder").unwrap_or(false),
-                content: vec![], // Inhalt brauchen wir für Tree nicht
+                content: vec![],
                 blob_id,
                 size: row.try_get::<i64, _>("size").unwrap_or(0) as usize,
                 lock_pass,
@@ -428,7 +417,6 @@ impl PytjaRepository for SqliteDriver {
         let search = format!("{}/%", path.trim_end_matches('/'));
         let is_admin = role == "admin";
 
-        // PERFORMANCE MAGIE: Die DB filtert PRIV Dateien (permissions = 0) sofort raus, wenn man nicht Admin oder Owner ist.
         let rows = sqlx::query("SELECT * FROM file_nodes WHERE path LIKE ? AND (? = 1 OR permissions > 0 OR owner = ?)")
             .bind(&search).bind(is_admin).bind(username)
             .fetch_all(&self.pool).await.map_err(|e| PytjaError::DatabaseError(e.to_string()))?;
@@ -437,7 +425,7 @@ impl PytjaRepository for SqliteDriver {
         for row in rows {
             let p: String = row.try_get("path").unwrap_or_default();
             let relative = p.strip_prefix(path).unwrap_or(&p).trim_start_matches('/');
-            if relative.contains('/') { continue; } // Nur direkte Kinder
+            if relative.contains('/') { continue; }
 
             nodes.push(FileNode {
                 path: p,
@@ -496,7 +484,6 @@ impl PytjaRepository for SqliteDriver {
     async fn get_node_secure(&self, path: &str, username: &str, role: &str) -> Result<Option<FileNode>, PytjaError> {
         let node = self.get_node(path).await?;
         if let Some(n) = node {
-            // ZERO-TRUST: Wenn es PRIV (0) ist und man weder Besitzer noch Admin ist -> 404 Verstecken!
             if role != "admin" && n.permissions == 0 && n.owner != username {
                 return Ok(None);
             }
@@ -507,11 +494,9 @@ impl PytjaRepository for SqliteDriver {
 
     async fn read_node_chunk_secure(&self, path: &str, username: &str, role: &str, offset: usize, size: usize) -> Result<Vec<u8>, PytjaError> {
         let is_admin = role == "admin";
-
-        // WICHTIG: SQLite SUBSTR ist 1-basiert (das erste Byte ist 1, nicht 0)!
+        
         let sqlite_offset = offset + 1;
-
-        // PERFORMANCE MAGIE: SUBSTR lädt nur den angeforderten Teil des BLOBs aus der Festplatte.
+        
         let row = sqlx::query("SELECT SUBSTR(content, ?, ?) as chunk FROM file_nodes WHERE path = ? AND (? = 1 OR permissions > 0 OR owner = ?)")
             .bind(sqlite_offset as i64)
             .bind(size as i64)
@@ -525,14 +510,13 @@ impl PytjaRepository for SqliteDriver {
             let chunk: Vec<u8> = r.try_get("chunk").unwrap_or_default();
             Ok(chunk)
         } else {
-            // Wenn die Datei nicht existiert oder Rechte fehlen, geben wir leer zurück
             Ok(vec![])
         }
     }
 
     async fn query_metadata_secure(&self, query: &str, username: &str, role: &str) -> Result<Vec<FileNode>, PytjaError> {
         let is_admin = role == "admin";
-        let search = format!("%{}%", query); // Performante Volltextsuche im JSON
+        let search = format!("%{}%", query);
 
         let rows = sqlx::query("SELECT * FROM file_nodes WHERE metadata IS NOT NULL AND metadata LIKE ? AND (? = 1 OR permissions > 0 OR owner = ?)")
             .bind(&search).bind(is_admin).bind(username)

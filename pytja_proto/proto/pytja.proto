@@ -1,7 +1,6 @@
 syntax = "proto3";
 package pytja;
 
-// Der Service definiert, was der Server kann
 service PytjaService {
     rpc Ping (PingRequest) returns (PingResponse);
     rpc ListDirectory (ListRequest) returns (ListResponse);
@@ -12,17 +11,17 @@ service PytjaService {
     rpc CopyNode (CopyNodeRequest) returns (ActionResponse);
     rpc ChangeMode (ChangeModeRequest) returns (ActionResponse);
     rpc ChownNode (ChownRequest) returns (ActionResponse);
-    rpc LockNode (LockRequest) returns (ActionResponse); // Für lock UND unlock
-    rpc GetUsage (UsageRequest) returns (UsageResponse); // du / quota
+    rpc LockNode (LockRequest) returns (ActionResponse);
+    rpc GetUsage (UsageRequest) returns (UsageResponse);
     rpc FindNode (FindRequest) returns (FindResponse);
     rpc GrepNode (GrepRequest) returns (GrepResponse);
-    rpc StatNode (StatRequest) returns (StatResponse); // Für cd (Prüfen ob Ordner existiert)
+    rpc StatNode (StatRequest) returns (StatResponse);
     rpc GetTree (TreeRequest) returns (TreeResponse);
     rpc UploadFile (stream UploadRequest) returns (ActionResponse);
     rpc DownloadFile (DownloadRequest) returns (stream FileChunk);
     rpc ExecScript (ExecRequest) returns (stream ExecResponse);
-    rpc GetChallenge (ChallengeRequest) returns (ChallengeResponse); // Schritt 1
-    rpc Login (LoginRequest) returns (LoginResponse); // Schritt
+    rpc GetChallenge (ChallengeRequest) returns (ChallengeResponse);
+    rpc Login (LoginRequest) returns (LoginResponse);
     rpc KickUser (KickUserRequest) returns (ActionResponse);
     rpc CreateRole (CreateRoleRequest) returns (AdminActionResponse);
     rpc AddPermission (AddPermissionRequest) returns (AdminActionResponse);
@@ -47,7 +46,7 @@ service PytjaService {
     rpc QueryMetadata (QueryMetadataRequest) returns (ListResponse);
 }
 
-// --- Messages (Datenpakete) ---
+// --- Messages (Data packages) ---
 
 message PingRequest {
     string message = 1;
@@ -91,13 +90,13 @@ message ActionResponse {
 
 message ReadFileRequest {
     string path = 1;
-    string password = 2; // Falls die Datei gelockt ist
+    string password = 2;
 }
 
 message ReadFileResponse {
     bool success = 1;
     bytes content = 2;
-    string message = 3; // Fehlermeldung falls access denied
+    string message = 3;
 }
 
 message DeleteNodeRequest {
@@ -112,12 +111,12 @@ message MoveNodeRequest {
 message CopyNodeRequest {
     string source_path = 1;
     string dest_path = 2;
-    string owner = 3; // Der neue Owner der Kopie
+    string owner = 3;
 }
 
 message ChangeModeRequest {
     string path = 1;
-    uint32 permissions = 2; // 0, 1, 2
+    uint32 permissions = 2;
 }
 
 message ChownRequest {
@@ -127,7 +126,7 @@ message ChownRequest {
 
 message LockRequest {
     string path = 1;
-    string password = 2; // Leer = Unlock
+    string password = 2;
 }
 
 message UsageRequest {
@@ -139,7 +138,7 @@ message UsageResponse {
 }
 
 message FindRequest {
-    string pattern = 1; // z.B. "*.txt"
+    string pattern = 1;
 }
 
 message FindResponse {
@@ -147,11 +146,11 @@ message FindResponse {
 }
 
 message GrepRequest {
-    string pattern = 1; // Das Wort, das wir suchen
+    string pattern = 1;
 }
 
 message GrepResponse {
-    repeated string matches = 1; // Liste der Dateien, die das Wort enthalten
+    repeated string matches = 1;
 }
 
 message StatRequest {
@@ -161,21 +160,20 @@ message StatRequest {
 message StatResponse {
     bool exists = 1;
     bool is_folder = 2;
-    bool is_locked = 3; // Damit cd nach Passwort fragen kann
+    bool is_locked = 3;
 }
 
 message TreeRequest {
-    string root_path = 1; // Wo soll der Baum starten? (meistens "/")
+    string root_path = 1;
 }
 
 message TreeResponse {
-    string tree_output = 1; // Der Server sendet den fertigen Text-Baum
+    string tree_output = 1;
 }
 
 // --- STREAMING MESSAGES ---
 
 message UploadRequest {
-    // oneof spart Platz: Entweder Metadaten ODER Daten-Chunk
     oneof data {
         FileMetadata metadata = 1;
         bytes chunk = 2;
@@ -186,8 +184,8 @@ message FileMetadata {
     string path = 1;
     string lock_password = 2;
     string owner = 3;
-    bool is_folder = 4; // Falls wir rekursiv hochladen (erstmal false)
-    optional string metadata = 5; // NEU: Unsere JSON Metadaten!
+    bool is_folder = 4;
+    optional string metadata = 5;
 }
 
 message DownloadRequest {
@@ -196,7 +194,7 @@ message DownloadRequest {
 }
 
 message FileChunk {
-    bytes content = 1; // Ein Teil der Datei
+    bytes content = 1;
 }
 
 message ExecRequest {
@@ -205,31 +203,27 @@ message ExecRequest {
 }
 
 message ExecResponse {
-    string output_line = 1; // Eine Zeile Output (stdout/stderr)
+    string output_line = 1;
 }
 
-// 1. Client fragt: "Gib mir eine Aufgabe!"
 message ChallengeRequest {
     string username = 1;
 }
 
-// 2. Server antwortet: "Hier ist dein Zufallswert."
 message ChallengeResponse {
-    string challenge = 1; // Hex String (32 bytes random)
+    string challenge = 1;
     bool user_exists = 2;
 }
 
-// 3. Client antwortet: "Hier ist meine Unterschrift für den Zufallswert."
 message LoginRequest {
     string username = 1;
-    string challenge = 2; // Die Aufgabe, die wir bekommen haben
-    string signature = 3; // Die Lösung (Signatur der Challenge)
+    string challenge = 2;
+    string signature = 3;
 }
 
-// 4. Server antwortet: "Korrekt. Hier ist dein Session-Token."
 message LoginResponse {
     bool success = 1;
-    string token = 2; // Das JWT Token
+    string token = 2;
     string message = 3;
 }
 
@@ -237,15 +231,13 @@ message SessionInfo {
     string session_id = 1;
     string username = 2;
     string ip_address = 3;
-    int32 role_level = 4; // Muss int32 bleiben! (Feld 4)
+    int32 role_level = 4;
     string login_time = 5;
     string last_activity = 6;
-    string role = 7;      // NEU: String Rolle (Feld 7)
+    string role = 7;
 }
 
-message GetSessionsRequest {
-    // Leer lassen für alle, oder filtern
-}
+message GetSessionsRequest {}
 
 message GetSessionsResponse {
     repeated SessionInfo sessions = 1;
@@ -265,7 +257,7 @@ message CreateRoleRequest {
 
 message AddPermissionRequest {
     string role_name = 1;
-    string permission = 2; // z.B. "core:fs:write" oder "chat:send"
+    string permission = 2;
 }
 
 message AssignRoleRequest {
@@ -291,7 +283,7 @@ message ListRolesResponse {
 
 message BanUserRequest {
     string username = 1;
-    bool ban = 2; // true = ban, false = unban
+    bool ban = 2;
     string reason = 3;
 }
 
@@ -310,11 +302,11 @@ message ChangeRoleResponse {
     string message = 2;
 }
 
-// Datenbanken / Mounts
+// Databases / Mounts
 message MountInfo {
-    string name = 1;        // z.B. "primary", "archive"
-    string type = 2;        // "sqlite", "postgres", "s3"
-    string connection = 3;  // Der Pfad oder URL (maskiert)
+    string name = 1;
+    string type = 2;
+    string connection = 3;
     bool is_connected = 4;
 }
 
@@ -339,8 +331,8 @@ message UserData {
     string username = 1;
     string role = 2;
     bool is_active = 3;
-    uint64 quota_used = 4;   // Aktueller Verbrauch
-    uint64 quota_limit = 5;  // Individuelles Limit (0 = Default)
+    uint64 quota_used = 4;
+    uint64 quota_limit = 5;
     string created_at = 6;
 }
 
@@ -376,8 +368,8 @@ message SystemStatsResponse {
 }
 
 message GetAuditLogsRequest {
-    uint32 limit = 1; // z.B. die letzten 50 Einträge
-    string filter_user = 2; // Optional
+    uint32 limit = 1;
+    string filter_user = 2;
 }
 
 message AuditLogEntry {
@@ -394,7 +386,7 @@ message GetAuditLogsResponse {
 // Live Log Stream
 message LogStreamRequest {}
 message LogStreamEntry {
-    string level = 1; // "INFO", "WARN", "ERROR"
+    string level = 1;
     string message = 2;
     string timestamp = 3;
 }
@@ -403,21 +395,21 @@ message LogStreamEntry {
 
 message RegisterUserRequest {
     string username = 1;
-    bytes public_key = 2; // PEM oder Raw Bytes
-    string role = 3; // Wird ignoriert, wenn invite_code genutzt wird
+    bytes public_key = 2;
+    string role = 3;
     uint64 quota_limit = 4;
-    string invite_code = 5; // NEU: Der Schlüssel zum Server
+    string invite_code = 5;
 }
 
 message GenerateInviteRequest {
-    string role = 1; // z.B. "guest", "user", "admin"
-    uint32 max_uses = 2; // Wie oft darf der Code genutzt werden? (0 = unendlich)
-    uint64 quota_limit = 3; // Optionales Limit in Bytes für neue User
+    string role = 1;
+    uint32 max_uses = 2;
+    uint64 quota_limit = 3;
 }
 
 message GenerateInviteResponse {
     bool success = 1;
-    string code = 2; // z.B. "PYTJA-GUEST-A1B2"
+    string code = 2;
     string message = 3;
 }
 
@@ -440,7 +432,6 @@ message ListInvitesResponse {
     repeated InviteCodeInfo invites = 1;
 }
 
-// (Füge das ganz unten in die Datei ein)
 message ReadChunkRequest {
     string path = 1;
     uint64 offset = 2;

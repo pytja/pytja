@@ -7,8 +7,7 @@ pub enum PytjaError {
 
     #[error("Database query failed: {0}")]
     DatabaseError(String),
-
-    // FIX: Automatische Konvertierung für ? Operator bei SQLx
+    
     #[error("SQLx Error: {0}")]
     SqlxError(#[from] sqlx::Error),
 

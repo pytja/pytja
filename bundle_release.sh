@@ -1,45 +1,102 @@
 #!/bin/bash
-# Pytja Enterprise Release Bundler
 
-RELEASE_NAME="pytja-enterprise-macos"
+RELEASE_NAME="pytja-macos"
 BUILD_DIR="target/release"
 
 echo "--- Building Pytja Release Package ---"
 
-# 1. Clean & Build
 cargo build --release
 
-# 2. Struktur erstellen
 rm -rf $RELEASE_NAME
-mkdir -p $RELEASE_NAME/config $RELEASE_NAME/certs $RELEASE_NAME/data/storage $RELEASE_NAME/logs
+mkdir -p $RELEASE_NAME
 
-# 3. Binary kopieren
 cp $BUILD_DIR/pytja $RELEASE_NAME/pytja-macos
+chmod +x $RELEASE_NAME/pytja-macos
 
-# 4. Config kopieren (und umbenennen zu default.toml für den User)
-cp config/release.toml $RELEASE_NAME/config/default.toml
-
-# 5. Hilfsskripte erstellen
-cat << 'EOF' > $RELEASE_NAME/setup_security.sh
-#!/bin/bash
-mkdir -p certs
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout certs/server.key -out certs/server.crt \
-  -subj "/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1"
-echo "TLS-Zertifikate generiert."
-EOF
-chmod +x $RELEASE_NAME/setup_security.sh
-
-# 6. README erstellen
 cat << 'EOF' > $RELEASE_NAME/QUICKSTART.md
-# Pytja Quickstart
-1. Führe `./setup_security.sh` aus.
-2. Registriere dich: `./pytja-macos registrar`
-3. Starte Server: `./pytja-macos server`
-4. Shell (neues Tab): `./pytja-macos shell`
+__
+                       /\ \__   __
+         _____   __  __\ \ ,_\ /\_\     __
+        /\ '__`\/\ \/\ \\ \ \/ \/\ \  /'__`\
+        \ \ \L\ \ \ \_\ \\ \ \_ \ \ \/\ \L\.\_
+         \ \ ,__/\/`____ \\ \__\_\ \ \ \__/.\_\
+          \ \ \/  `/___/> \\/__/\ \_\ \/__/\/_/
+           \ \_\     /\___/    \ \____/
+            \/_/     \/__/      \/___/
+
+PYTJA PLATFORM - DEPLOYMENT GUIDE
+================================================================================
+
+Welcome to the Pytja release. This binary is compiled for maximum
+performance and features an automated deployment wizard for macOS, Linux,
+and Windows.
+
+
+1. SYSTEM REQUIREMENTS
+--------------------------------------------------------------------------------
+Pytja requires a local Redis cache for session state management.
+
+macOS installation via Homebrew:
+  brew install redis
+  brew services start redis
+
+Linux installation (Debian/Ubuntu):
+  sudo apt-get update
+  sudo apt-get install redis-server
+  sudo systemctl enable --now redis-server
+
+Windows installation (via Docker):
+  docker run --name pytja-redis -p 6379:6379 -d redis
+
+  (Alternatively, install WSL2 via "wsl --install" and use
+  the Linux instructions above).
+
+
+2. EXECUTION AND PROVISIONING
+--------------------------------------------------------------------------------
+Execute the binary directly from your terminal. The application utilizes
+Zero-Touch Provisioning to establish your environment securely.
+
+For macOS and Linux:
+Grant execution permissions before running the binary.
+  chmod +x pytja-<os-version>
+
+(macOS only) Remove the quarantine attribute if blocked by Gatekeeper:
+  xattr -d com.apple.quarantine pytja-macos
+
+Execute the application:
+  ./pytja-<os-version>
+
+For Windows:
+Open PowerShell or Command Prompt and execute the provided .exe file:
+  .\pytja-windows.exe
+
+The bootstrap wizard will automatically configure your local network binding,
+generate TLS certificates, and initialize the SQLite database. You will be
+prompted to create your primary administrative identity during this phase.
+
+
+3. DIRECTORY STRUCTURE
+--------------------------------------------------------------------------------
+Upon successful initialization, the application will manage the following local
+directories in your current working folder:
+
+- /certs  : Contains the generated Zero-Trust TLS certificates.
+- /config : Contains the default.toml configuration file.
+- /data   : Houses the SQLite database (pytja.db) and local storage blobs.
+- /logs   : Contains detailed telemetry and operational logs.
+- .env    : Stores the uniquely generated cryptographic JWT secret.
+
+
+4. OPERATIONAL HANDOFF
+--------------------------------------------------------------------------------
+After completing the identity setup, the backend server will detach as a
+background daemon, and your terminal will seamlessly transition into the
+interactive Pytja Shell.
+
+To terminate the session and the background daemon, simply type "exit" within
+the shell.
 EOF
 
-# 7. Zippen
 zip -r ${RELEASE_NAME}.zip $RELEASE_NAME
-echo "--- Release bereit: ${RELEASE_NAME}.zip ---"
+echo "--- Release ready: ${RELEASE_NAME}.zip ---"

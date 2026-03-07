@@ -11,7 +11,6 @@ WORKDIR /usr/src/app
 
 COPY . .
 
-# Release Build für den gesamten Workspace (erzeugt die 'pytja' Binary)
 RUN cargo build --release
 
 # --- STAGE 2: RUNTIME (Production) ---
@@ -26,7 +25,6 @@ RUN useradd -m -u 1000 -U pytja_user
 
 WORKDIR /app
 
-# Die monolithische Binary aus dem Builder kopieren
 COPY --from=builder /usr/src/app/target/release/pytja /usr/local/bin/pytja
 
 RUN mkdir -p /app/data /app/logs && chown -R pytja_user:pytja_user /app
@@ -36,5 +34,4 @@ USER pytja_user
 ENV RUST_LOG=info
 EXPOSE 50051
 
-# Startbefehl für den Server-Modus
 CMD ["pytja", "server"]

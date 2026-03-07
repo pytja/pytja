@@ -8,7 +8,6 @@ name = "pytja_shell"
 path = "src/lib.rs"
 
 [dependencies]
-# Die neue Verbindung zum Core
 pytja_core = { path = "../pytja_core" }
 
 serde = { version = "1.0", features = ["derive"] }
@@ -36,9 +35,9 @@ indicatif = "0.17"
 tracing = "0.1"
 hex = "0.4"
 tonic = { version = "0.10", features = ["tls", "tls-roots"] }
-prost = "0.12"       # Das Datenformat
-pytja_proto = { path = "../pytja_proto" } # Unser Vertrag
-http = "0.2"         # Wichtig für URL Parsing
+prost = "0.12" 
+pytja_proto = { path = "../pytja_proto" }
+http = "0.2"
 async-stream = "0.3.6"
 uuid = "1.20.0"
 futures-util = "0.3.31"

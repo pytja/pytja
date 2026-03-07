@@ -1,97 +1,67 @@
-name: Enterprise Release Build
+name: Pytja Enterprise Release Pipeline
 
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
 
 permissions:
   contents: write
 
 jobs:
-  build-binaries:
-    name: Build Pytja Core (${{ matrix.os }})
+  build-and-release:
+    name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: pytja-linux
           - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: pytja-macos
+            target_dir: pytja-macos
+            bin_name: pytja
+          - os: ubuntu-latest
+            target_dir: pytja-linux
+            bin_name: pytja
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: pytja-windows.exe
+            target_dir: pytja-windows
+            bin_name: pytja.exe
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Protobuf Compiler
+      - name: Install Protoc (gRPC compiler)
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Linux Dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev
-
-      - name: Setup Rust Toolchain
+      - name: Set up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
-      - name: Build Core Components
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build Release Binary
+        run: cargo build --release
 
-      - name: Prepare Clean Release Binary
-        shell: bash
+      - name: Prepare Unix Artifacts
+        if: matrix.os != 'windows-latest'
         run: |
-          mkdir -p final_release
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/${{ matrix.target }}/release/pytja.exe final_release/${{ matrix.artifact_name }}
-          else
-            cp target/${{ matrix.target }}/release/pytja final_release/${{ matrix.artifact_name }}
-          fi
+          mkdir -p ${{ matrix.target_dir }}
+          cp target/release/${{ matrix.bin_name }} ${{ matrix.target_dir }}/
+          cp README.txt ${{ matrix.target_dir }}/
+          chmod +x ${{ matrix.target_dir }}/${{ matrix.bin_name }}
+          zip -r ${{ matrix.target_dir }}.zip ${{ matrix.target_dir }}
 
-      - name: Upload Core Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: final_release/*
+      - name: Prepare Windows Artifacts
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ${{ matrix.target_dir }}
+          Copy-Item -Path "target\release\${{ matrix.bin_name }}" -Destination "${{ matrix.target_dir }}\"
+          Copy-Item -Path "README.txt" -Destination "${{ matrix.target_dir }}\"
+          Compress-Archive -Path "${{ matrix.target_dir }}" -DestinationPath "${{ matrix.target_dir }}.zip"
 
-  prepare-plugins:
-    name: Prepare Plugins
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Upload Plugin Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytja-plugins
-          path: plugins/*
-
-  publish-release:
-    name: Publish to GitHub Releases
-    needs: [build-binaries, prepare-plugins]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create Release
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            pytja-linux/*
-            pytja-macos/*
-            pytja-windows.exe/*
-            pytja-plugins/*
-          generate_release_notes: true
+          files: ${{ matrix.target_dir }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

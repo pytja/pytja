@@ -21,7 +21,6 @@ pub async fn show(client: &mut AdminClient) -> anyhow::Result<()> {
             "0. Back to Main Menu"
         ];
 
-        // FIX: interact_opt() erlaubt Abbruch via ESC/q
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Select Action")
             .default(0)
@@ -32,14 +31,13 @@ pub async fn show(client: &mut AdminClient) -> anyhow::Result<()> {
             Some(0) => list_users_table(client).await?,
             Some(1) => {
                 if !edit_user(client).await? {
-                    // Wenn false zurückkommt, hat der Admin sich selbst bearbeitet -> Logout
                     return Err(anyhow::anyhow!("Session invalidated due to own role change. Please restart the admin tool."));
                 }
             },
             Some(2) => generate_invite(client).await?,
             Some(3) => list_invites(client).await?,
             Some(4) => revoke_invite(client).await?,
-            Some(5) | None => break, // Wenn User ESC/q drückt (None), gehen wir zurück ins Hauptmenü
+            Some(5) | None => break,
             _ => {}
         }
     }
@@ -75,7 +73,6 @@ async fn list_users_table(client: &mut AdminClient) -> anyhow::Result<()> {
     Ok(())
 }
 
-// Returnt `bool`: true = weiterlaufen, false = Admin hat sich selbst geändert (Logout)
 async fn edit_user(client: &mut AdminClient) -> anyhow::Result<bool> {
     let users = client.list_users().await?;
     if users.is_empty() {
@@ -94,7 +91,7 @@ async fn edit_user(client: &mut AdminClient) -> anyhow::Result<bool> {
 
     let selected_idx = match selection {
         Some(idx) => idx,
-        None => return Ok(true), // Abbruch durch ESC/q
+        None => return Ok(true),
     };
 
     let selected_user = &users[selected_idx];
@@ -108,11 +105,11 @@ async fn edit_user(client: &mut AdminClient) -> anyhow::Result<bool> {
 
     let action_idx = match action_sel {
         Some(idx) => idx,
-        None => return Ok(true), // Abbruch durch ESC/q
+        None => return Ok(true),
     };
 
     match action_idx {
-        0 => { // Change Role
+        0 => {
             let roles = vec!["admin", "user", "guest"];
             let role_sel = Select::with_theme(&ColorfulTheme::default())
                 .with_prompt("Select new Role")
@@ -122,22 +119,21 @@ async fn edit_user(client: &mut AdminClient) -> anyhow::Result<bool> {
 
             let role_idx = match role_sel {
                 Some(idx) => idx,
-                None => return Ok(true), // Abbruch
+                None => return Ok(true),
             };
 
             let new_role = roles[role_idx].to_string();
             client.change_user_role(selected_user.username.clone(), new_role.clone()).await?;
-            println!("✅ {} is now {}.", selected_user.username.green(), new_role.yellow());
-
-            // FIX: Warnung und Logout, wenn man sich selbst bearbeitet
+            println!("{} is now {}.", selected_user.username.green(), new_role.yellow());
+            
             if selected_user.username == client.username {
-                println!("{}", "\n⚠️ SECURITY LOCKOUT: You changed your own role.".red().bold());
+                println!("{}", "\nSECURITY LOCKOUT: You changed your own role.".red().bold());
                 println!("Your current session has been terminated to apply the new permissions.");
                 std::thread::sleep(std::time::Duration::from_secs(4));
                 return Ok(false);
             }
         },
-        1 => { // Change Quota
+        1 => {
             let current_gb = selected_user.quota_limit as f64 / 1024.0 / 1024.0 / 1024.0;
             let new_quota_str: String = Input::with_theme(&ColorfulTheme::default())
                 .with_prompt(format!("New Quota Limit in GB (Current: {:.2}, 'q' = cancel)", current_gb))
@@ -149,7 +145,7 @@ async fn edit_user(client: &mut AdminClient) -> anyhow::Result<bool> {
             let new_quota_gb: f64 = new_quota_str.parse().unwrap_or(current_gb);
             let new_quota_bytes = (new_quota_gb * 1024.0 * 1024.0 * 1024.0) as u64;
             client.set_quota(selected_user.username.clone(), new_quota_bytes).await?;
-            println!("✅ Quota updated.");
+            println!("Quota updated.");
         },
         _ => {}
     }
@@ -168,7 +164,7 @@ async fn generate_invite(client: &mut AdminClient) -> anyhow::Result<()> {
 
     let role_idx = match role_sel {
         Some(idx) => idx,
-        None => return Ok(()), // Abbruch durch ESC/q
+        None => return Ok(()),
     };
     let selected_role = roles[role_idx].to_string();
 
@@ -191,11 +187,11 @@ async fn generate_invite(client: &mut AdminClient) -> anyhow::Result<()> {
 
     match client.generate_invite(selected_role.clone(), max_uses, quota_bytes).await {
         Ok(code) => {
-            println!("\n🎉 {}", "INVITE CODE GENERATED SUCCESSFULLY".green().bold());
+            println!("\n{}", "INVITE CODE GENERATED SUCCESSFULLY".green().bold());
             println!("Share this code with the user: {}", code.cyan().bold());
             println!("Role: {}, Max Uses: {}", selected_role, max_uses);
         },
-        Err(e) => println!("❌ {}", format!("Failed: {}", e).red()),
+        Err(e) => println!("{}", format!("Failed: {}", e).red()),
     }
 
     println!("\nPress Enter to continue...");
@@ -247,7 +243,7 @@ async fn revoke_invite(client: &mut AdminClient) -> anyhow::Result<()> {
 
     if let Some(true) = confirm {
         client.revoke_invite(code).await?;
-        println!("✅ {}", "Code revoked.".green());
+        println!("{}", "Code revoked.".green());
     }
 
     std::thread::sleep(std::time::Duration::from_secs(1));

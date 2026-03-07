@@ -4,8 +4,8 @@ use sqlx::FromRow;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Role {
-    pub name: String,        // z.B. "admin", "editor", "guest"
-    pub permissions: Vec<String>, // z.B. ["core:fs:read", "core:upload"]
+    pub name: String,
+    pub permissions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -18,7 +18,7 @@ pub struct User {
     #[sqlx(default)]
     pub quota_limit: i64,
     #[sqlx(default)]
-    pub description: Option<String>, // Feld description hinzugefügt
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,11 +27,8 @@ pub struct FileNode {
     pub name: String,
     pub owner: String,
     pub is_folder: bool,
-
-    // Legacy Content (für kleine Files oder Configs)
+    
     pub content: Vec<u8>,
-
-    // ENTERPRISE: Referenz auf den Blob im Storage
     pub blob_id: Option<String>,
 
     pub size: usize,
@@ -59,7 +56,6 @@ pub struct AuditLogEntry {
     pub target: String,
 }
 
-// Ergänze AuditLog Model falls noch nicht da:
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AuditLog {
     pub id: i64,

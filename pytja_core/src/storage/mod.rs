@@ -1,7 +1,6 @@
 pub mod fs;
 pub mod s3;
 
-// WICHTIG: Re-Exports für lib.rs
 pub use fs::FileSystemStorage;
 pub use s3::S3Storage;
 
@@ -10,7 +9,7 @@ use bytes::Bytes;
 use futures::stream::BoxStream;
 use crate::error::PytjaError;
 
-// Enterprise Stream Type
+// Stream Type
 pub type ByteStream = BoxStream<'static, Result<Bytes, PytjaError>>;
 
 #[async_trait]

@@ -1,4 +1,3 @@
-// Hier importieren wir den generierten Code
 pub mod pytja {
     tonic::include_proto!("pytja");
 }

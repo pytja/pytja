@@ -17,7 +17,6 @@ members = [
 ]
 
 [dependencies]
-# Wir binden die Server- und Shell-Logik als Bibliotheken ein
 pytja_server = { path = "pytja_server" }
 pytja_shell = { path = "pytja_shell" }
 pytja_admin = { path = "pytja_admin" }

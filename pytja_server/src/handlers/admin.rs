@@ -1,5 +1,5 @@
 use tonic::{Request, Response, Status};
-use pytja_proto::pytja::*; // Importiert alle Request/Response Types aus Proto
+use pytja_proto::pytja::*;
 use pytja_core::{models::{User, Role}, drivers::DatabaseType};
 use crate::handlers::service::MyPytjaService;
 use sysinfo::{CpuExt, SystemExt, System};
@@ -35,8 +35,6 @@ impl MyPytjaService {
     // --- REGISTRATION & INVITES ---
 
     pub async fn register_user_impl(&self, request: Request<RegisterUserRequest>) -> Result<Response<RegisterUserResponse>, Status> {
-        // WICHTIG: KEIN self.check_permissions(...) HIER!
-        // Die Registrierung ist öffentlich zugänglich, wird aber durch den Invite-Code gesichert.
         let req = request.into_inner();
         let repo = self.manager.get_repo("primary").await.ok_or(Status::internal("DB Error"))?;
 
@@ -44,7 +42,6 @@ impl MyPytjaService {
             return Err(Status::already_exists("User already exists"));
         }
 
-        // 1. Invite Code Validieren
         if req.invite_code.is_empty() {
             return Err(Status::permission_denied("Invite code required for registration."));
         }
@@ -52,7 +49,6 @@ impl MyPytjaService {
         let invite = repo.get_invite(&req.invite_code).await.map_err(|e| Status::internal(e.to_string()))?;
         let (assigned_role, assigned_quota) = match invite {
             Some((role, quota, max_uses, used_count)) => {
-                // Prüfen ob Code aufgebraucht ist
                 if max_uses > 0 && used_count >= max_uses {
                     return Err(Status::permission_denied("Invite code expired or used maximum number of times."));
                 }
@@ -60,8 +56,7 @@ impl MyPytjaService {
             },
             None => return Err(Status::permission_denied("Invalid invite code.")),
         };
-
-        // 2. User anlegen (mit den Werten aus dem Invite-Code!)
+        
         let new_user = User {
             username: req.username.clone(),
             public_key: req.public_key,
@@ -74,7 +69,6 @@ impl MyPytjaService {
 
         repo.create_user(&new_user).await.map_err(|e| Status::internal(e.to_string()))?;
 
-        // 3. Code als "genutzt" markieren
         repo.increment_invite_use(&req.invite_code).await.map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(RegisterUserResponse { success: true, message: "Welcome to Pytja. Registration successful.".into() }))
@@ -85,7 +79,6 @@ impl MyPytjaService {
         let req = request.into_inner();
         let repo = self.manager.get_repo("primary").await.ok_or(Status::internal("DB Error"))?;
 
-        // Simpler Random String (Ohne externe Crates)
         let timestamp = chrono::Utc::now().timestamp_subsec_nanos();
         let code = format!("PYTJA-{}-{:X}", req.role.to_uppercase(), timestamp);
 
@@ -252,14 +245,13 @@ impl MyPytjaService {
     pub async fn get_mounts_impl(&self, request: Request<GetMountsRequest>) -> Result<Response<GetMountsResponse>, Status> {
         self.check_permissions(request.metadata(), Some("core:admin:mounts")).await?;
 
-        // Wir rufen jetzt die echten Konfigurationen inkl. DB-Typ ab
         let configs = self.manager.get_mount_configs().await;
         let mut infos = Vec::new();
 
         for cfg in configs {
             infos.push(MountInfo {
                 name: cfg.name.clone(),
-                r#type: format!("{:?}", cfg.db_type), // Wandelt das Enum (Postgres/Sqlite) in einen String um
+                r#type: format!("{:?}", cfg.db_type),
                 connection: "Hosted".to_string(),
                 is_connected: self.manager.get_repo(&cfg.name).await.is_some(),
             });
@@ -311,9 +303,6 @@ impl MyPytjaService {
         sys.refresh_all();
 
         let active_sessions = self.sessions.get_all_sessions().await.len() as u64;
-
-        // Da dieser Endpunkt eine aktive Session verlangt, WISSEN wir zu 100%,
-        // dass Redis erreichbar ist. Wir setzen den Status daher hart auf true.
         let redis_ok = true;
 
         Ok(Response::new(SystemStatsResponse {

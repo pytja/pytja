@@ -19,14 +19,12 @@ pub struct MyPytjaService {
 }
 
 impl MyPytjaService {
-    // FIX: Enterprise Security - Secret MUSS aus ENV kommen
     pub fn get_jwt_secret() -> Vec<u8> {
         match env::var("PYTJA_JWT_SECRET") {
             Ok(s) if !s.is_empty() => s.into_bytes(),
             _ => {
-                // Im Development Mode warnen wir, im Production Mode (Release) sollte man panicken
                 if cfg!(debug_assertions) {
-                    tracing::warn!("⚠️ UNSAFE: Using default JWT secret. Set PYTJA_JWT_SECRET in .env!");
+                    tracing::warn!("UNSAFE: Using default JWT secret. Set PYTJA_JWT_SECRET in .env!");
                     b"pytja_super_secret_key_change_me_in_prod".to_vec()
                 } else {
                     panic!("FATAL: PYTJA_JWT_SECRET environment variable is not set!");
@@ -67,7 +65,6 @@ impl MyPytjaService {
     }
 
     pub async fn resolve_repo(&self, full_path: &str) -> Result<(Arc<dyn PytjaRepository>, String), Status> {
-        // ... (Der Rest dieser Funktion bleibt identisch zu vorher) ...
         let clean_path = full_path.trim_start_matches('/');
         let mounts = self.manager.list_mounts().await;
 

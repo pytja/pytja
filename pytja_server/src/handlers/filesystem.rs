@@ -110,7 +110,6 @@ impl MyPytjaService {
                             return Err(PytjaError::QuotaExceeded { current: current_usage + upload_session_bytes, limit });
                         }
                         upload_session_bytes += len;
-                        // Progress Update alle 5MB
                         if upload_session_bytes - last_redis_update > 5 * 1024 * 1024 {
                             let sm = session_manager.clone();
                             let o = owner_clone.clone();
@@ -127,7 +126,6 @@ impl MyPytjaService {
             }
         });
 
-        // 1. Pfad säubern (FIX für OS Error 30)
         let clean_path = metadata.path.trim_start_matches('/');
         if clean_path.is_empty() || clean_path.ends_with('/') {
             self.sessions.unlock_file(&metadata.path, &claims.sub).await;
@@ -135,7 +133,6 @@ impl MyPytjaService {
         }
         let storage_path = clean_path.to_string();
 
-        // 2. Stream pinnen und speichern
         let pinned_stream = Box::pin(byte_stream);
         let result = self.storage.put(&storage_path, pinned_stream).await;
 
@@ -156,7 +153,7 @@ impl MyPytjaService {
             blob_id: Some(blob_id),
             size: upload_session_bytes,
             lock_pass: if metadata.lock_password.is_empty() { None } else { Some(metadata.lock_password) },
-            permissions: 2, // FIX: Default Public Permissions (2)
+            permissions: 2,
             created_at: chrono::Utc::now().timestamp() as f64,
             metadata: metadata.metadata,
         };
@@ -237,7 +234,7 @@ impl MyPytjaService {
             size: content_len,
             content: req.content,
             lock_pass: if req.lock_password.is_empty() { None } else { Some(req.lock_password) },
-            permissions: 2, // FIX: Default Public Permissions
+            permissions: 2,
             created_at: chrono::Utc::now().timestamp() as f64,
             blob_id: None,
             metadata: None,
@@ -267,7 +264,6 @@ impl MyPytjaService {
             if pass != req.password { return Err(Status::permission_denied("File is locked")); }
         }
 
-        // FIX: Blobs bis 5MB laden
         let content = if let Some(blob_id) = node.blob_id {
             if node.size > 5 * 1024 * 1024 {
                 return Err(Status::failed_precondition("File too large for cat (Blob). Use download command."));
@@ -341,7 +337,6 @@ impl MyPytjaService {
         let move_result = if Arc::ptr_eq(&repo_src, &repo_dst) {
             repo_src.move_path(&src_rel, &dst_rel).await.map_err(|e| Status::internal(e.to_string()))
         } else {
-            // Cross-Repo Move
             let src_node = repo_src.get_node(&src_rel).await.map_err(|e| Status::internal(e.to_string()))?
                 .ok_or(Status::not_found("Source file not found"))?;
 
@@ -472,7 +467,6 @@ impl MyPytjaService {
         let claims = self.check_permissions(request.metadata(), Some("core:fs:read")).await?;
         let mut req = request.into_inner();
 
-        // 1. Pfad säubern
         if req.root_path.ends_with("/.") {
             req.root_path = req.root_path.trim_end_matches('.').trim_end_matches('/').to_string();
         }
@@ -482,7 +476,6 @@ impl MyPytjaService {
 
         let (repo, rel_path) = self.resolve_repo(&req.root_path).await?;
 
-        // Wir holen nach wie vor superschnell alle Nodes mit einem DB-Call
         let all_nodes = repo.list_recursive_secure(&rel_path, &claims.sub, &claims.role)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -492,7 +485,6 @@ impl MyPytjaService {
         let mut dirs_count = 0;
         let mut files_count = 0;
 
-        // 2. Rekursive Hilfsfunktion: Baut aus der flachen Liste einen echten Baum
         fn build_tree(
             nodes: &[FileNode],
             current_path: &str,
@@ -501,10 +493,9 @@ impl MyPytjaService {
             dirs_count: &mut usize,
             files_count: &mut usize,
         ) {
-            // Finde nur die DIREKTEN Kinder des aktuellen Pfades
             let mut children: Vec<&FileNode> = nodes.iter().filter(|n| {
                 if n.path == "/" || n.path == current_path {
-                    return false; // Sich selbst ignorieren
+                    return false;
                 }
 
                 let trimmed = n.path.trim_end_matches('/');
@@ -517,7 +508,6 @@ impl MyPytjaService {
                 parent == current_path
             }).collect();
 
-            // Sortiere nur die Kinder dieser Ebene: Ordner zuerst, dann Alphabetisch
             children.sort_by(|a, b| b.is_folder.cmp(&a.is_folder).then(a.name.cmp(&b.name)));
 
             let count = children.len();
@@ -525,7 +515,6 @@ impl MyPytjaService {
                 let is_last = i == count - 1;
                 let connector = if is_last { "└── " } else { "├── " };
 
-                // Farbgebung
                 let colored_name = if child.is_folder {
                     child.name.blue().bold().to_string()
                 } else {
@@ -535,13 +524,10 @@ impl MyPytjaService {
                 let marker = if child.is_folder { " [DIR]".blue().to_string() } else { "".to_string() };
                 let lock_marker = if child.lock_pass.is_some() { " 🔒".to_string() } else { "".to_string() };
 
-                // Zeichnen der aktuellen Zeile
                 output.push_str(&format!("{}{}{}{}{}\n", prefix, connector, colored_name, marker, lock_marker));
 
-                // Wenn es ein Ordner ist, tauchen wir eine Ebene tiefer ab
                 if child.is_folder {
                     *dirs_count += 1;
-                    // Der Präfix für die nächste Ebene hängt davon ab, ob wir gerade das letzte Element waren
                     let extension = if is_last { "    " } else { "│   " };
                     let new_prefix = format!("{}{}", prefix, extension);
 
@@ -551,8 +537,7 @@ impl MyPytjaService {
                 }
             }
         }
-
-        // 3. Baum-Zeichnung starten
+        
         if all_nodes.is_empty() || (all_nodes.len() == 1 && all_nodes[0].path == rel_path) {
             output.push_str("(empty)\n");
         } else {
@@ -609,7 +594,6 @@ impl MyPytjaService {
 
         let (repo, relative_path) = self.resolve_repo(&req.path).await?;
 
-        // Wenn ein Passwort gesendet wurde, prüfen wir das (wie bei get_node)
         if let Ok(Some(node)) = repo.get_node(&relative_path).await {
             if let Some(real_pass) = node.lock_pass {
                 let provided = req.password.unwrap_or_default();
@@ -621,7 +605,6 @@ impl MyPytjaService {
             return Err(Status::not_found("File not found"));
         }
 
-        // Lade nur den Chunk (Zero-Trust + Zero-RAM Overhead)
         let chunk = repo.read_node_chunk_secure(&relative_path, &claims.sub, &claims.role, req.offset as usize, req.chunk_size as usize)
             .await.map_err(|e| Status::internal(e.to_string()))?;
 

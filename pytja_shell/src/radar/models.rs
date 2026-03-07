@@ -22,7 +22,6 @@ pub struct PluginManifest {
     pub version: String,
     pub description: String,
     pub permissions: Vec<RadarPermission>,
-    // THE ENTERPRISE FIX: Abwärtskompatibler Autostart-Flag
     #[serde(default)]
     pub autostart: bool,
 }

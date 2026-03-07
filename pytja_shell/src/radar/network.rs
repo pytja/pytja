@@ -6,7 +6,6 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use super::models::RadarPermission;
 
-// Enterprise State Management: Verfolgt alle aktiven Sockets eines Daemons
 pub type SocketMap = Arc<Mutex<HashMap<String, mpsc::Sender<String>>>>;
 
 pub async fn handle_network_request(
@@ -21,7 +20,7 @@ pub async fn handle_network_request(
 
     let method = req["method"].as_str().unwrap_or("");
 
-    // --- 1. HTTP/REST ---
+    // --- HTTP/REST ---
     if method == "send" || method == "http" {
         let url = req["params"]["url"].as_str().unwrap_or("");
         let method_http = req["params"]["method"].as_str().unwrap_or("GET");
@@ -54,7 +53,7 @@ pub async fn handle_network_request(
             }
         }
     }
-    // --- 2. WEBSOCKET CONNECT ---
+    // --- WEBSOCKET CONNECT ---
     else if method == "ws_connect" {
         let url = req["params"]["url"].as_str().unwrap_or("");
         let socket_id = req["params"]["id"].as_str().unwrap_or("");
@@ -63,24 +62,22 @@ pub async fn handle_network_request(
             Ok((ws_stream, _)) => {
                 let (mut write, mut read) = ws_stream.split();
 
-                // Channel, um Nachrichten vom Plugin ZUM WebSocket zu schicken
                 let (ws_tx, mut ws_rx) = mpsc::channel::<String>(100);
                 sockets.lock().await.insert(socket_id.to_string(), ws_tx);
 
-                // TASK A: Outbound (Plugin -> Internet)
+                // Outbound (Plugin -> Internet)
                 tokio::spawn(async move {
                     while let Some(msg) = ws_rx.recv().await {
                         if write.send(Message::Text(msg)).await.is_err() { break; }
                     }
                 });
 
-                // TASK B: Inbound (Internet -> Plugin Inbox)
+                // Inbound (Internet -> Plugin Inbox)
                 let p_tx = plugin_tx.clone();
                 let s_id = socket_id.to_string();
                 tokio::spawn(async move {
                     while let Some(msg) = read.next().await {
                         if let Ok(Message::Text(text)) = msg {
-                            // Multiplexing-Format: WS_MSG:<SOCKET_ID>:<DATA>
                             let event = format!("WS_MSG:{}:{}", s_id, text);
                             let _ = p_tx.send(event).await;
                         }
@@ -95,7 +92,7 @@ pub async fn handle_network_request(
             }
         }
     }
-    // --- 3. WEBSOCKET SEND ---
+    // --- WEBSOCKET SEND ---
     else if method == "ws_send" {
         let socket_id = req["params"]["id"].as_str().unwrap_or("");
         let data = req["params"]["data"].as_str().unwrap_or("");

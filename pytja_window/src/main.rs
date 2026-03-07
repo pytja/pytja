@@ -23,7 +23,7 @@ struct WindowConfig {
 #[derive(Debug)]
 enum UserEvent {
     IncomingData(String),
-    Shutdown, // ENTERPRISE FIX: Sicheres Herunterfahren
+    Shutdown,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -48,8 +48,6 @@ fn main() -> anyhow::Result<()> {
                 let _ = proxy.send_event(UserEvent::IncomingData(content));
             }
         }
-        // ENTERPRISE FIX: Wenn der Host stirbt oder "daemon kill" aufruft,
-        // schließt sich die Pipe (EOF). Wir feuern das Shutdown-Event!
         let _ = proxy.send_event(UserEvent::Shutdown);
     });
 
@@ -79,7 +77,6 @@ fn main() -> anyhow::Result<()> {
                 let script = format!("window.dispatchEvent(new CustomEvent('pytja_host_event', {{ detail: {} }}));", js_payload);
                 let _ = webview.evaluate_script(&script);
             }
-            // ENTERPRISE FIX: Das Fenster sauber aus dem RAM entfernen
             Event::UserEvent(UserEvent::Shutdown) => {
                 *control_flow = ControlFlow::Exit;
             }

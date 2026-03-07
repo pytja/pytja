@@ -171,28 +171,25 @@ impl SessionManager {
         }
     }
 
-    // --- NEU: DISTRIBUTED FILE LOCKING (Enterprise Feature) ---
+    // --- DISTRIBUTED FILE LOCKING ---
 
     pub async fn try_lock_file(&self, path: &str, owner: &str) -> bool {
         if let Ok(mut conn) = self.client.get_multiplexed_async_connection().await {
-            // Wir nutzen Base64 für den Pfad im Key, um Probleme mit Sonderzeichen zu vermeiden
             use base64::{Engine as _, engine::general_purpose};
             let path_b64 = general_purpose::STANDARD.encode(path);
             let key = format!("lock:file:{}", path_b64);
 
-            // SET NX PX: Setze Key nur, wenn er nicht existiert (NX), mit 30s TTL (PX)
-            // Das ist der Standard "Distributed Lock" Pattern in Redis.
             let result: Option<String> = redis::cmd("SET")
                 .arg(&key)
-                .arg(owner) // Value ist der Owner, damit nur er unlocken kann
+                .arg(owner)
                 .arg("NX")
                 .arg("PX")
-                .arg(30000) // 30 Sekunden Auto-Release bei Absturz
+                .arg(30000)
                 .query_async(&mut conn).await.unwrap_or(None);
 
-            return result.is_some(); // Wenn "OK" zurückkommt, haben wir den Lock
+            return result.is_some();
         }
-        false // Fail-Closed: Wenn Redis weg ist, keine Schreibzugriffe erlauben
+        false
     }
 
     pub async fn unlock_file(&self, path: &str, owner: &str) {
@@ -201,7 +198,6 @@ impl SessionManager {
             let path_b64 = general_purpose::STANDARD.encode(path);
             let key = format!("lock:file:{}", path_b64);
 
-            // Lua Script für atomares "Check Owner & Delete"
             let script = redis::Script::new(r"
                 if redis.call('get', KEYS[1]) == ARGV[1] then
                     return redis.call('del', KEYS[1])
@@ -214,7 +210,7 @@ impl SessionManager {
         }
     }
 
-    // --- QUOTA CACHING (Enterprise Performance) ---
+    // --- QUOTA CACHING (Performance) ---
 
     pub async fn get_cached_quota(&self, username: &str) -> Option<u64> {
         if let Ok(mut conn) = self.client.get_multiplexed_async_connection().await {
@@ -227,7 +223,6 @@ impl SessionManager {
     pub async fn set_cached_quota(&self, username: &str, bytes: u64) {
         if let Ok(mut conn) = self.client.get_multiplexed_async_connection().await {
             let key = format!("quota:{}", username);
-            // 3600 Sekunden (1h) TTL sorgt für den automatischen Sync mit der DB
             let _: redis::RedisResult<()> = conn.set_ex(key, bytes, 3600).await;
         }
     }
@@ -235,8 +230,6 @@ impl SessionManager {
     pub async fn update_quota(&self, username: &str, delta: i64) {
         if let Ok(mut conn) = self.client.get_multiplexed_async_connection().await {
             let key = format!("quota:{}", username);
-            // Wir updaten nur, wenn der Key existiert.
-            // Falls nicht, wird er beim nächsten Read eh sauber aus der DB geladen.
             if let Ok(true) = conn.exists::<_, bool>(&key).await {
                 let _: redis::RedisResult<()> = conn.incr(&key, delta).await;
             }

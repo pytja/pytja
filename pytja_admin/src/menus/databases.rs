@@ -46,9 +46,9 @@ async fn list_mounts(client: &mut AdminClient) -> anyhow::Result<()> {
 
     for m in mounts {
         let status_cell = if m.is_connected {
-            Cell::new("✅ ONLINE").fg(Color::Green).add_attribute(Attribute::Bold)
+            Cell::new("ONLINE").fg(Color::Green).add_attribute(Attribute::Bold)
         } else {
-            Cell::new("❌ OFFLINE").fg(Color::Red).add_attribute(Attribute::Bold)
+            Cell::new("OFFLINE").fg(Color::Red).add_attribute(Attribute::Bold)
         };
 
         let type_display = if m.name == "primary" {
@@ -83,7 +83,7 @@ async fn mount_wizard(client: &mut AdminClient) -> anyhow::Result<()> {
 
     // Check gegen "primary" verhindern
     if name == "primary" {
-        println!("❌ Error: 'primary' is reserved for the system database.");
+        println!("Error: 'primary' is reserved for the system database.");
         return Ok(());
     }
 
@@ -118,8 +118,8 @@ async fn mount_wizard(client: &mut AdminClient) -> anyhow::Result<()> {
     println!("Attempting to mount '{}' via {}...", name, db_type_str);
 
     match client.add_mount(name.clone(), conn_string, db_type_str.to_string()).await {
-        Ok(_) => println!("✅ Successfully mounted '{}'. It is now accessible via /{}", name, name),
-        Err(e) => println!("❌ Mount failed: {}", e),
+        Ok(_) => println!("Successfully mounted '{}'. It is now accessible via /{}", name, name),
+        Err(e) => println!("Mount failed: {}", e),
     }
 
     Ok(())
@@ -151,8 +151,8 @@ async fn unmount_wizard(client: &mut AdminClient) -> anyhow::Result<()> {
         .interact()?
     {
         match client.remove_mount(target.clone()).await {
-            Ok(_) => println!("✅ '{}' has been unmounted.", target),
-            Err(e) => println!("❌ Error unmounting: {}", e), // Falls Server "Unimplemented" wirft (was aktuell der Fall ist, siehe unten)
+            Ok(_) => println!("'{}' has been unmounted.", target),
+            Err(e) => println!("Error unmounting: {}", e), // Falls Server "Unimplemented" wirft (was aktuell der Fall ist, siehe unten)
         }
     } else {
         println!("Operation cancelled.");

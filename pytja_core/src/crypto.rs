@@ -26,10 +26,8 @@ impl CryptoService {
         let signature = priv_key.sign(message);
         BASE64.encode(signature.to_bytes())
     }
-
-    // FIX: Akzeptiert jetzt &[u8] statt Hex-String
+    
     pub fn verify_signature(pub_key_bytes: &[u8], message: &[u8], signature_b64: &str) -> Result<bool> {
-        // Direktes Parsen der Bytes, kein Hex-Decode mehr nötig
         let pub_key = VerifyingKey::from_bytes(pub_key_bytes.try_into().map_err(|_| anyhow!("Invalid PubKey length"))?)?;
 
         let sig_bytes = BASE64.decode(signature_b64)?;
@@ -44,8 +42,7 @@ impl CryptoService {
         let mut key = [0u8; 32];
         pbkdf2::<Hmac<Sha256>>(password.as_bytes(), SALT, ITERATIONS, &mut key).unwrap();
         let cipher = Aes256Gcm::new(&key.into());
-
-        // Hier nutzen wir jetzt den importierten Trait AeadCore
+        
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let ciphertext = cipher.encrypt(&nonce, key_bytes.as_ref()).map_err(|_| anyhow!("Encryption failed"))?;
 
@@ -73,14 +70,14 @@ impl CryptoService {
 
     pub fn generate_random_challenge() -> String {
         use rand::RngCore;
-        let mut data = [0u8; 32]; // 32 Bytes Zufall
+        let mut data = [0u8; 32];
         OsRng.fill_bytes(&mut data);
         hex::encode(data)
     }
 
     pub fn derive_e2e_key(secret_seed: &[u8]) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        hasher.update(b"PYTJA_ENTERPRISE_E2EE_V1"); // Domain Separation Salt
+        hasher.update(b"PYTJA_ENTERPRISE_E2EE_V1");
         hasher.update(secret_seed);
         let result = hasher.finalize();
 

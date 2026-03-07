@@ -21,11 +21,7 @@ use crate::radar::RadarEngine;
 use crate::network_client::PytjaClient;
 use pytja_core::identity::Identity;
 
-// Die hartcodierten Konstanten (DB_PATH und IDENTITY_DIR) wurden restlos entfernt!
-
 pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
-    // --- ENTERPRISE FIX: Global Panic Hook Suppression ---
-    // Wir kapern die Rust-Fehlerbehandlung auf Kernel-Ebene, BEVOR irgendetwas anderes startet.
     std::panic::set_hook(Box::new(|panic_info| {
         let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
             *s
@@ -35,25 +31,23 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
             "Unknown System Panic"
         };
 
-        // Wenn es unser eigener ABI-Poisoning-Kill ist, sterben wir absolut lautlos.
         if msg == "DAEMON_TERMINATED_BY_HOST" {
             return;
         }
 
-        // Bei echten Bugs schreiben wir in ein Logfile, um das Terminal nicht zu zerstören
         let _ = std::fs::write("pytja_crash.log", format!("CRITICAL ERROR: {}\n", msg));
     }));
 
-    // 1. Logging Setup (File only)
+    // Logging Setup (File only)
     let file_appender = tracing_appender::rolling::daily("logs", "pytja_shell.log");
     let (_non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    // 2. UI Start
+    // UI Start
     print!("\x1B[2J\x1B[1;1H");
     println!("{}", "PYTJA SHELL v2.0 (Enterprise Client)".green().bold());
     println!("{}", "========================================".dimmed());
 
-    // 3. Enterprise Identity Loading (Ein einziger, dynamischer Aufruf!)
+    // Enterprise Identity Loading
     let identity = match Identity::load_or_prompt(identity_path) {
         Ok(id) => id,
         Err(e) => {
@@ -65,7 +59,7 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
     let username = identity.username.clone();
     let signing_key = identity.keypair.clone();
 
-    // 4. Connection Setup (Mit Spinner)
+    // Connection Setup
     let pb = ProgressBar::new_spinner();
     pb.set_style(ProgressStyle::default_spinner()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈✔")
@@ -100,13 +94,11 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
 
     pb.set_message("Connecting to Enterprise Server...");
 
-    let server_url = "https://localhost:50051".to_string();
+    let server_url = "https://127.0.0.1:50051".to_string();
     let key_bytes = signing_key.to_bytes().to_vec();
 
-    // ENTERPRISE FIX: AES-256-GCM Schlüssel aus der Identität ableiten
     let e2e_key = CryptoService::derive_e2e_key(&key_bytes);
 
-    // Den E2EE-Schlüssel sicher in den isolierten Client-Speicher injizieren
     let client = match PytjaClient::connect(server_url, key_bytes, username.clone(), ca_cert, e2e_key).await {
         Ok(c) => c,
         Err(e) => {
@@ -157,8 +149,7 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
         pb.finish_with_message(format!("ACCESS DENIED: {}", login_resp.message).red().to_string());
         return Ok(());
     }
-
-    // 5. Enterprise Pfad-Auflösung für lokalen Cache
+    
     let db_path = if let Some(proj_dirs) = ProjectDirs::from("com", "pytja", "shell") {
         let data_dir = proj_dirs.data_dir();
         fs::create_dir_all(data_dir)?;
@@ -168,21 +159,17 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
     };
 
     // --- 6. OS BOOT SEQUENCE (RADAR ENGINE) ---
-
-    // ENTERPRISE FIX: Wir erschaffen den globalen Alarm-Kanal für die gesamte Pytja-Plattform
     let (alarm_tx, alarm_rx) = tokio::sync::mpsc::channel::<String>(100);
 
-    // Wir übergeben den Sender (tx) an die Engine, damit Plugins Alarme feuern können
     let mut radar_engine = RadarEngine::new(alarm_tx).context("Failed to boot Radar Micro-Runtime")?;
 
-    // Plugins auslesen und in den RAM laden!
     if let Err(e) = radar_engine.load_plugins("./plugins") {
         eprintln!("{} Radar Engine Loading Error: {}", "[WARNING]".yellow(), e);
     }
 
     println!("\n{}", "--- RADAR ENGINE ONLINE ---".cyan().bold());
     println!("{} In-Memory WASIX executor active.", "[OK]".green());
-    println!("{} {} Enterprise Plugins loaded.", "[OK]".green(), radar_engine.get_manifests().len());
+    println!("{} {} Plugins loaded.", "[OK]".green(), radar_engine.get_manifests().len());
     println!("{}", "---------------------------".cyan().bold());
 
     // --- 7. FILE SYSTEM & TERMINAL START ---
@@ -190,8 +177,7 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
     let vfs_shared = Arc::new(Mutex::new(vfs));
 
     println!("\nStarting Shell Session...");
-
-    // Wir übergeben den Empfänger (rx) an das Terminal, damit es sie auf den Bildschirm malen kann
+    
     let mut term = Terminal::new(vfs_shared, username.clone(), radar_engine, client, alarm_rx);
     let _ = term.start().await;
 

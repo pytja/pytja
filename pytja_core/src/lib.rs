@@ -5,10 +5,9 @@ pub mod telemetry;
 pub mod repo;
 pub mod drivers;
 pub mod config;
-pub mod storage; // <-- Modul muss da sein
+pub mod storage;
 pub mod identity;
 
-// Re-Exports für einfachen Zugriff
 pub use repo::PytjaRepository;
 pub use drivers::{DriverManager, DatabaseType};
 pub use error::PytjaError;

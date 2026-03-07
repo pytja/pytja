@@ -15,7 +15,7 @@ pub struct DaemonContext {
     pub monitor_task: tokio::task::JoinHandle<()>,
     pub tx: mpsc::Sender<String>,
     pub mem_fs: TmpFileSystem,
-    pub last_heartbeat: Arc<Mutex<std::time::Instant>>, // NEU: Der Pulsschlag
+    pub last_heartbeat: Arc<Mutex<std::time::Instant>>,
 }
 
 pub struct RadarEngine {
@@ -23,7 +23,7 @@ pub struct RadarEngine {
     module_cache: HashMap<String, Module>,
     manifests: HashMap<String, PluginManifest>,
     pub active_daemons: Arc<std::sync::Mutex<HashMap<String, DaemonContext>>>,
-    pub window_pipes: Arc<tokio::sync::Mutex<HashMap<String, tokio::process::ChildStdin>>>, // NEU
+    pub window_pipes: Arc<tokio::sync::Mutex<HashMap<String, tokio::process::ChildStdin>>>,
     pub ui_registry: Arc<tokio::sync::Mutex<std::collections::HashMap<String, String>>>,
     pub alarm_tx: tokio::sync::mpsc::Sender<String>,
 }
@@ -37,16 +37,14 @@ impl RadarEngine {
         tokio::spawn(async move {
             crate::radar::display::run_ui_server(ui_reg_clone).await;
         });
-
-        // --- ENTERPRISE FIX: THE REAPER (Automated Watchdog) ---
+        
         let daemons_clone = active_daemons.clone();
         let alarm_tx_clone = alarm_tx.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 let mut dead_plugins = Vec::new();
-
-                // 1. Prüfen, wer sich nicht gemeldet hat
+                
                 if let Ok(daemons) = daemons_clone.lock() {
                     for (name, ctx) in daemons.iter() {
                         let last = *ctx.last_heartbeat.lock().unwrap();
@@ -55,7 +53,6 @@ impl RadarEngine {
                         }
                     }
                 }
-                // 2. Gnadenlos terminieren
                 if !dead_plugins.is_empty() {
                     if let Ok(mut daemons) = daemons_clone.lock() {
                         for name in dead_plugins {
@@ -74,7 +71,7 @@ impl RadarEngine {
             module_cache: HashMap::new(),
             manifests: HashMap::new(),
             active_daemons,
-            window_pipes: Arc::new(tokio::sync::Mutex::new(HashMap::new())), // NEU
+            window_pipes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             ui_registry,
             alarm_tx,
         })
@@ -149,12 +146,9 @@ impl RadarEngine {
 
         let window_pipes_for_daemon = self.window_pipes.clone();
 
-        // ENTERPRISE FIX: Heartbeat HIER erstellen, VOR dem Thread!
         let heartbeat = Arc::new(Mutex::new(std::time::Instant::now()));
         let heartbeat_for_abi = heartbeat.clone();
 
-        // ENTERPRISE FIX: Den Daemons-Mutex klonen, BEVOR der Thread startet!
-        // So verhindern wir, dass `self` in die Closure "gemoved" wird.
         let active_daemons_for_thread = self.active_daemons.clone();
 
         let daemon_task = tokio::task::spawn_blocking(move || -> Result<()> {
@@ -162,7 +156,7 @@ impl RadarEngine {
             let mut store = Store::default();
             let mem_fs_abi = mem_fs_sandbox.clone();
 
-            // --- ENTERPRISE FIX: DIRECT MEMORY ACCESS (DMA) ENVIRONMENT ---
+            // --- DIRECT MEMORY ACCESS (DMA) ENVIRONMENT ---
             #[derive(Clone)]
             struct RadarEnv { memory: Option<wasmer::Memory> }
             let radar_env = FunctionEnv::new(&mut store, RadarEnv { memory: None });
@@ -200,14 +194,12 @@ impl RadarEngine {
             let sockets_abi = active_sockets.clone();
             let alarm_tx_for_daemon_inner = alarm_tx_for_daemon.clone();
 
-            // ENTERPRISE FIX: Wir nutzen den äußeren Klon und den bereits besessenen String (plugin_name_owned)
             let active_for_heartbeat = active_daemons_for_thread.clone();
             let active_for_ipc = active_daemons_for_thread.clone();
             let plugin_name_for_abi = plugin_name_owned.clone();
 
             radar_exports.insert("host_heartbeat", Function::new_typed(&mut store, move || {
-                // ENTERPRISE FIX: ABI Poisoning. Wenn der Daemon gekillt wurde,
-                // reißt der Host den WASM-Thread gnadenlos in eine Trap!
+              
                 if !active_for_heartbeat.lock().unwrap().contains_key(&plugin_name_for_abi) {
                     panic!("DAEMON_TERMINATED_BY_HOST");
                 }
@@ -221,10 +213,8 @@ impl RadarEngine {
                 if !active_for_ipc.lock().unwrap().contains_key(&plugin_name_for_ipc) {
                     panic!("DAEMON_TERMINATED_BY_HOST");
                 }
-                // 1. Memory abrufen
                 let memory = env.data().memory.as_ref().unwrap().clone();
 
-                // 2. Request direkt über Pointers aus dem Plugin-RAM lesen
                 let mut req_bytes = vec![0u8; req_len as usize];
                 {
                     let view = memory.view(&env);
@@ -243,13 +233,10 @@ impl RadarEngine {
                 let sockets_inner = sockets_abi.clone();
                 let alarm_inner = alarm_tx_for_daemon_inner.clone();
 
-                // ENTERPRISE FIX: Clone the outer variable INSIDE the closure so it doesn't consume the outer variable
                 let window_pipes_inner = window_pipes_for_daemon.clone();
 
-                // --- NEU: Wir klonen die Daemons VOR dem asynchronen Block! ---
                 let active_for_ipc_inner = active_for_ipc.clone();
 
-                // 3. Routing (synchrones Warten blockiert nur diesen einen Thread)
                 let response_json = handle_abi.block_on(async move {
                     match serde_json::from_str::<serde_json::Value>(&req_content) {
                         Ok(req) => {
@@ -307,7 +294,7 @@ impl RadarEngine {
                                     let mut child = match Command::new(&exe_path)
                                         .arg(config_json.to_string())
                                         .stdout(Stdio::piped())
-                                        .stdin(Stdio::piped()) // ENTERPRISE FIX: Die Pipe öffnen!
+                                        .stdin(Stdio::piped())
                                         .spawn()
                                     {
                                         Ok(c) => c,
@@ -317,13 +304,10 @@ impl RadarEngine {
                                         }
                                     };
 
-                                    // Den stdin-Kanal im Engine-Speicher verankern
                                     if let Some(stdin) = child.stdin.take() {
                                         window_pipes_inner.lock().await.insert(plugin_id.clone(), stdin);
                                     }
 
-                                    // ENTERPRISE FIX: Wir nutzen den inneren Klon,
-                                    // um die äußere Closure nicht zu konsumieren!
                                     let active_daemons_for_window = active_for_ipc_inner.clone();
                                     let pipes_for_window = window_pipes_inner.clone();
                                     let plugin_id_for_window = plugin_id.clone();
@@ -336,7 +320,6 @@ impl RadarEngine {
                                                 if line.starts_with("PYTJA_IPC_EVENT:") {
                                                     let payload = line.replace("PYTJA_IPC_EVENT:", "");
 
-                                                    // ENTERPRISE FIX: Auto-Kill bei Fenster-Schließung
                                                     if payload.contains("WINDOW_CLOSED") {
                                                         let _ = alarm_for_window.try_send(format!("[SYSTEM] UI closed. Terminating agent '{}'.", plugin_id_for_window));
                                                         if let Ok(mut daemons) = active_daemons_for_window.lock() {
@@ -356,7 +339,6 @@ impl RadarEngine {
 
                                     r#"{"status": "success", "message": "Window spawned natively via helper process"}"#.to_string()
 
-                                // ENTERPRISE FIX: Die Data Push Route
                                 } else if method == "emit" {
                                     let plugin_id = owner_id.replace("radar_", "");
                                     let mut pipes = window_pipes_inner.lock().await;
@@ -380,12 +362,11 @@ impl RadarEngine {
                     }
                 });
 
-                // 4. Response prüfen und direkt in den Plugin-RAM zurückschreiben
                 let res_bytes = response_json.as_bytes();
                 let res_len = res_bytes.len() as i32;
 
                 if res_len > res_cap {
-                    return -res_len; // Puffer im Plugin ist zu klein!
+                    return -res_len;
                 }
 
                 {
@@ -395,14 +376,13 @@ impl RadarEngine {
                     }
                 }
 
-                res_len // Erfolgreich: Wir geben die echte Länge zurück
+                res_len
             }));
 
             import_object.register_namespace("radar_abi", radar_exports);
 
             let instance = Instance::new(&mut store, &module, &import_object)?;
 
-            // --- ENTERPRISE FIX: Memory an das RadarEnv binden! ---
             if let Ok(memory) = instance.exports.get_memory("memory") {
                 radar_env.as_mut(&mut store).memory = Some(memory.clone());
             }
@@ -428,20 +408,18 @@ impl RadarEngine {
             monitor_task,
             tx,
             mem_fs: mem_fs_context,
-            last_heartbeat: heartbeat, // Den Puls eintragen
+            last_heartbeat: heartbeat,
         });
         Ok(())
     }
 
-    // --- ENTERPRISE FIX: THREAD-SAFE DAEMON HELPER METHODS ---
+    // --- THREAD-SAFE DAEMON HELPER METHODS ---
 
     pub fn kill_daemon(&self, plugin_name: &str) -> Result<()> {
         let mut daemons = self.active_daemons.lock().unwrap();
         if let Some(ctx) = daemons.remove(plugin_name) {
             ctx.monitor_task.abort();
 
-            // ENTERPRISE FIX: Wir löschen die Pipe.
-            // Das sendet ein EOF an das native Fenster und schließt es synchron!
             let pipes = self.window_pipes.clone();
             let name = plugin_name.to_string();
             tokio::spawn(async move {
@@ -455,8 +433,6 @@ impl RadarEngine {
     }
 
     pub async fn send_to_daemon(&self, plugin_name: &str, message: String) -> Result<()> {
-        // WICHTIG: Wir dürfen den Mutex NICHT halten, während wir asynchron (await) auf den Channel warten.
-        // Deshalb holen wir uns nur eine Kopie des Transmitters (tx) in einem winzigen synchronen Block.
         let tx = {
             let daemons = self.active_daemons.lock().unwrap();
             if let Some(ctx) = daemons.get(plugin_name) {
@@ -573,7 +549,6 @@ impl RadarEngine {
         let mem_fs = TmpFileSystem::new();
         let mem_fs_clone = mem_fs.clone();
 
-        // FIX: Auch hier das FS klonen, BEVOR es vom Builder konsumiert wird!
         let mem_fs_abi = mem_fs.clone();
 
         if let Some((filename, data)) = input_data {
@@ -606,7 +581,6 @@ impl RadarEngine {
             let mut wasi_env = builder.finalize(&mut store).context("Failed to finalize WASI env")?;
             let mut import_object = wasi_env.import_object(&mut store, &module).context("Failed to create WASI imports")?;
 
-            // Radar ABI aufbauen
             let mut radar_exports = Exports::new();
 
             radar_exports.insert("host_log_status", Function::new_typed(&mut store, |code: i32| {

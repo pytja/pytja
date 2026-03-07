@@ -1,6 +1,6 @@
 mod abi;
 
-/// System-Lebenszyklus und Alarme
+/// System lifecycle and alarms
 pub mod host {
     use crate::abi;
 
@@ -14,7 +14,7 @@ pub mod host {
     }
 }
 
-/// Native Desktop Fenster (Sidecar API)
+/// Native Desktop Window (Sidecar API)
 pub mod window {
     use crate::abi;
 
@@ -36,7 +36,7 @@ pub mod window {
     }
 }
 
-/// Virtuelles Dateisystem (E2EE)
+/// Virtual Filesystem (E2EE)
 pub mod vfs {
     use crate::abi;
 
@@ -54,7 +54,7 @@ pub mod vfs {
     }
 }
 
-/// Netzwerk-Anfragen durch den Host-Proxy
+/// Network requests through the host proxy
 pub mod network {
     use crate::abi;
 

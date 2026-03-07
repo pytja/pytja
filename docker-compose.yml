@@ -11,11 +11,11 @@ services:
       - redis
       - minio
     environment:
-      # Globale Einstellungen
+      # Globa Settings
       - RUN_MODE=production
       - RUST_LOG=info
 
-      # Server Config (Doppelter Unterstrich nach PYTJA)
+      # Server Config
       - PYTJA__SERVER__HOST=0.0.0.0
       - PYTJA__SERVER__PORT=50051
       - PYTJA__SERVER__WORKER_THREADS=8
@@ -25,7 +25,7 @@ services:
       - PYTJA__TLS__CERT_PATH=/app/certs/server.crt
       - PYTJA__TLS__KEY_PATH=/app/certs/server.key
 
-      # Security (Wird meist direkt gelesen, daher so lassen)
+      # Security
       - PYTJA_JWT_SECRET=super_secure_docker_secret_change_me
 
       # Database (Postgres Connection)
@@ -39,13 +39,13 @@ services:
       - PYTJA__STORAGE__S3_BUCKET=pytja-data
       - PYTJA__STORAGE__S3_REGION=us-east-1
 
-      # AWS SDK liest diese automatisch (kein PYTJA Prefix nötig)
+      # AWS SDK
       - AWS_ACCESS_KEY_ID=minioadmin
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_S3_FORCE_PATH_STYLE=true
 
-      # Pfade für Mounts
+      # Mount paths
       - PYTJA__PATHS__MOUNTS_FILE=/app/data/mounts.json
 
     volumes:
@@ -66,7 +66,7 @@ services:
     volumes:
       - pytja_pg_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432" # Optional: Um von lokal zuzugreifen
+      - "5432:5432" # Optional
 
   # --- REDIS (Cache & Sessions) ---
   redis:

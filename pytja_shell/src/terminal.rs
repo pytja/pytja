@@ -9,7 +9,7 @@ use rustyline::validate::{Validator, ValidationResult, ValidationContext};
 use rustyline::Helper;
 use rustyline::history::DefaultHistory;
 use rustyline::error::ReadlineError;
-use rustyline::config::Configurer; // ENTERPRISE FIX: Trait Import für Autovervollständigung
+use rustyline::config::Configurer;
 use colored::*;
 use std::io::{self, Write};
 use std::str;
@@ -83,7 +83,7 @@ pub struct Terminal {
     alarm_rx: mpsc::Receiver<String>,
     alerts: Vec<String>,
     unread_alerts: usize,
-    current_path: String, // NEU: Zurück in der Shell!
+    current_path: String,
 }
 
 impl Terminal {
@@ -98,7 +98,7 @@ impl Terminal {
             vfs, username, radar_engine, client, alarm_rx,
             alerts: Vec::new(),
             unread_alerts: 0,
-            current_path: "/".to_string(), // NEU
+            current_path: "/".to_string(),
         }
     }
 
@@ -135,7 +135,7 @@ impl Terminal {
             let _ = rl.load_history(path);
         }
 
-        // --- ENTERPRISE AUTOSTART SEQUENCE ---
+        // --- AUTOSTART SEQUENCE ---
         let manifests = self.radar_engine.get_manifests();
         let mut autostart_count = 0;
 
@@ -162,17 +162,16 @@ impl Terminal {
                 self.unread_alerts += 1;
             }
 
-            // HIER IST DIE ÄNDERUNG: Wir nutzen wieder die echte Variable
             let prompt = if self.unread_alerts > 0 {
                 format!(
-                    "┌──({}㉿pytja)-[{}]-[\x1b[31m!\x1b[0m {} ALERTS]\n└─$ ",
+                    "┌──({}@pytja)-[{}]-[\x1b[31m!\x1b[0m {} ALERTS]\n└─$ ",
                     self.username.red(),
                     self.current_path.blue(),
                     self.unread_alerts
                 )
             } else {
                 format!(
-                    "┌──({}㉿pytja)-[{}]\n└─$ ",
+                    "┌──({}@pytja)-[{}]\n└─$ ",
                     self.username.red(),
                     self.current_path.blue()
                 )
@@ -269,7 +268,7 @@ impl Terminal {
             "daemon" => self.handle_daemon(args).await,
             _ => {
                 if self.radar_engine.has_plugin(cmd) {
-                    println!("{} Radar Enclave: {}", "🚀 Launching".cyan(), cmd.bold());
+                    println!("{} Radar Enclave: {}", "Launching".cyan(), cmd.bold());
                     self.execute_radar_plugin(cmd, args).await;
                 } else {
                     println!("Command not found: {}", cmd);
@@ -283,14 +282,14 @@ impl Terminal {
 
     async fn handle_exit(&mut self) -> bool {
         println!("Shutting down OS subsystems...");
-        println!("Verschlüssele Daten...");
+        println!("Encrypt Files...");
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        println!("Verbindung getrennt.");
+        println!("Connection terminated.");
         false
     }
 
     fn handle_help(&self) {
-        println!("\n{}", "PYTJA SHELL MANUAL V2.0".white().bold());
+        println!("\n{}", "PYTJA SHELL MANUAL".white().bold());
         println!("{}", "=".repeat(60));
         println!("\n{}", "[ FILE OPERATIONS ]".cyan());
         println!("{:<10} : {:<30}", "ls", "List [-a] [-s DATE/SIZE/NAME] [-r]");
@@ -329,7 +328,6 @@ impl Terminal {
             if idx + 1 < args.len() { sort_by = args[idx + 1]; }
         }
 
-        // ENTERPRISE FIX: .clone() ist zwingend notwendig, da String nicht Copy implementiert!
         let current_path = self.current_path.clone();
 
         match self.client.list_files(&current_path).await {
@@ -387,7 +385,6 @@ impl Terminal {
             format!("{}/{}", self.current_path, target)
         };
 
-        // Prüfen, ob der Ordner auf dem Server (!) existiert
         match self.client.stat_node(&new_path).await {
             Ok((exists, is_folder, is_locked)) => {
                 if !exists { println!("{} Directory not found.", "Error:".red()); return; }
@@ -395,7 +392,7 @@ impl Terminal {
                 if is_locked { let _ = self.ask_password("Locked Directory. Enter Password: "); }
 
                 self.current_path = new_path;
-                self.vfs.lock().await.current_path = self.current_path.clone(); // Dem VFS Bescheid geben
+                self.vfs.lock().await.current_path = self.current_path.clone();
             },
             Err(e) => println!("{} {}", "Server Error:".red(), e),
         }
@@ -521,7 +518,7 @@ impl Terminal {
             Ok((content, _)) => self.print_file_content(&content),
             Err(e) => {
                 if e.to_string().contains("Password") {
-                    let pass = self.ask_password("🔒 Locked File. Password: ");
+                    let pass = self.ask_password("Locked File. Password: ");
                     match self.client.read_file(&full_path, Some(pass)).await {
                         Ok((content, _)) => self.print_file_content(&content),
                         Err(e2) => println!("{}", e2.to_string().red()),
@@ -544,7 +541,6 @@ impl Terminal {
 
         let remote_base = if args.len() > 1 { args[1].to_string() } else {
             let name = local_path.file_name().unwrap_or_default().to_string_lossy();
-            // ENTERPRISE FIX: .to_string() um den Borrow Checker zu befriedigen
             let current_path = self.vfs.lock().await.get_cwd().to_string();
             if current_path == "/" { format!("/{}", name) } else { format!("{}/{}", current_path, name) }
         };
@@ -796,7 +792,7 @@ impl Terminal {
            \ \_\     /\___/    \ \____/
             \/_/     \/__/      \/___/
         "#.white().bold());
-        println!("        SECURE LINK RUST V2.0 // USER: {}", self.username);
+        println!("        PYTJA V1.0 // USER: {}", self.username);
     }
 
     fn ask_password(&self, prompt: &str) -> String {
@@ -856,7 +852,7 @@ impl Terminal {
         let manifests = self.radar_engine.get_manifests();
 
         if manifests.is_empty() {
-            println!("\n{} Keine Radar-Plugins geladen.\n", "ℹ️".cyan());
+            println!("\nNo plugins loaded.\n");
             return;
         }
 
@@ -910,7 +906,6 @@ impl Terminal {
 
                 if !output_files.is_empty() {
                     let mut synced = 0;
-                    // ENTERPRISE FIX: .clone() verwenden
                     let current_path = self.current_path.clone();
                     for (name, bytes) in output_files {
                         let remote_path = if current_path == "/" {

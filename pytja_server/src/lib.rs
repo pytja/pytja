@@ -5,7 +5,7 @@ use pytja_core::{DriverManager, AppConfig, BlobStorage, FileSystemStorage, S3Sto
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::info; // Cleanup: warn und error entfernt, da wir println für Startup nutzen
+use tracing::info;
 use dotenvy::dotenv;
 use std::fs;
 use colored::*;
@@ -86,17 +86,14 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
 
     colored::control::set_override(true);
 
-    // 1. Config Laden
     let config = AppConfig::new().expect("CRITICAL: Failed to load configuration");
 
-    // 2. Logging
     let _guard = pytja_core::telemetry::init_telemetry(&config.paths.logs_dir, "pytja_server.log");
 
     println!("{}", "========================================".green().bold());
-    println!("   PYTJA SERVER v1.0 (Enterprise)       ");
+    println!("   PYTJA SERVER v1.0       ");
     println!("{}", "========================================".green().bold());
 
-    // ... Manager Setup ...
     let manager = Arc::new(DriverManager::new());
     let redis_url = config.redis.as_ref().map(|r| r.url.clone()).unwrap_or_else(|| "redis://127.0.0.1/".to_string());
 
@@ -111,7 +108,6 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
 
     manager.load_config(&config.paths.mounts_file).await;
 
-    // Dynamische Datenbank-Erkennung für den Server
     let db_url = &config.database.primary_url;
     let (db_path, db_type) = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
         (db_url.as_str(), DatabaseType::Postgres)
@@ -131,9 +127,7 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
         panic!("FATAL: Primary DB lost immediately after mount!");
     }
 
-    // FIX: Storage Initialisierung mit korrekter Option-Behandlung
     let storage: Arc<dyn BlobStorage> = if config.storage.storage_type == "s3" {
-        // Wir erzwingen Bucket/Region Existenz, wenn Typ=S3 ist
         let bucket = config.storage.s3_bucket.as_deref()
             .expect("CRITICAL: 'storage.s3_bucket' is required in config when storage_type='s3'");
         let region = config.storage.s3_region.as_deref()
@@ -156,18 +150,17 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let _addr_str = format!("{}:{}", config.server.host, config.server.port);
-    // --- PRO DUAL-STACK BINDING ---
-    // Wir binden an [::], was unter macOS/Linux automatisch IPv4 und IPv6 abdeckt.
+
     let addr: std::net::SocketAddr = "[::]:50051".parse()
         .expect("CRITICAL: Invalid Dual-Stack Address");
 
     let mut builder = Server::builder()
         .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
-        .tcp_nodelay(true); // Performance-Tuning für geringe Latenz
+        .tcp_nodelay(true);
 
     if let Some(tls_config) = &config.tls {
         if tls_config.enabled {
-            println!("{}", "🔒 ENABLING TLS/SSL SECURITY".cyan());
+            println!("{}", "ENABLING TLS/SSL SECURITY".cyan());
 
             let cert_res = fs::read_to_string(&tls_config.cert_path);
             let key_res = fs::read_to_string(&tls_config.key_path);
@@ -176,22 +169,22 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
                 (Ok(cert), Ok(key)) => {
                     let identity = Identity::from_pem(cert, key);
                     builder = builder.tls_config(ServerTlsConfig::new().identity(identity))?;
-                    println!("✅ TLS Security Active (Dual-Stack Mode).");
+                    println!("TLS Security Active (Dual-Stack Mode).");
                 },
                 _ => {
-                    println!("{}", format!("❌ FATAL: Could not load certs from config paths: {} / {}", tls_config.cert_path, tls_config.key_path).red());
+                    println!("{}", format!("FATAL: Could not load certs from config paths: {} / {}", tls_config.cert_path, tls_config.key_path).red());
                     return Err("TLS Configuration failed. Server aborted.".into());
                 }
             }
         } else {
-            println!("⚠️  TLS Configured but Disabled in config.");
+            println!("TLS Configured but Disabled in config.");
         }
     } else {
-        println!("{}", "❌ CRITICAL: NO TLS CONFIG FOUND.".red().bold());
+        println!("{}", "CRITICAL: NO TLS CONFIG FOUND.".red().bold());
         return Err("Server security policy requires TLS configuration.".into());
     }
 
-    println!("{} {}", "🚀 Server listening on".green(), addr);
+    println!("{} {}", "Server listening on".green(), addr);
     println!("----------------------------------------");
 
     let max_size = 50 * 1024 * 1024;

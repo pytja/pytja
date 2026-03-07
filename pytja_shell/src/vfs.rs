@@ -26,10 +26,8 @@ pub enum AccessType { Read, Write, Execute }
 impl VirtualFileSystem {
     pub async fn new(username: String, db_path: &str) -> Self {
         let manager = DriverManager::new();
-        // Lokaler Cache init
         let connection_string = format!("sqlite://{}", db_path);
 
-        // FIX: Fehlerbehandlung beim Mounten hinzugefügt
         if let Err(e) = manager.mount("local_cache", &connection_string, DatabaseType::Sqlite).await {
             eprintln!("Warning: Failed to mount local cache: {}", e);
         }
@@ -38,15 +36,13 @@ impl VirtualFileSystem {
             current_path: "/".to_string(),
             connection_manager: manager,
             active_mount: "local_cache".to_string(),
-            user_id: username, // FIX: Fehlendes Feld user_id initialisiert
+            user_id: username,
         }
     }
 
     pub fn get_cwd(&self) -> &str {
         &self.current_path
     }
-
-    // FIX: Vereinheitlichte Async Methode 'get_db' (ersetzt 'db' und sync Versionen)
     pub async fn get_db(&self) -> Option<Arc<dyn PytjaRepository>> {
         self.connection_manager.get_repo(&self.active_mount).await
     }
@@ -63,7 +59,6 @@ impl VirtualFileSystem {
     }
 
     async fn check_quota_availability(&self, size_needed: usize) -> Result<(), PytjaError> {
-        // FIX: .await hinzugefügt und Option behandelt
         let db = self.get_db().await.ok_or(PytjaError::System("DB not connected".into()))?;
         let used = db.get_total_usage(&self.user_id).await.unwrap_or(0);
         if used + size_needed > DEFAULT_QUOTA {
@@ -73,8 +68,6 @@ impl VirtualFileSystem {
     }
 
     // --- ASYNC CORE OPERATIONS ---
-
-    // NEU: metadata: Option<String> am Ende hinzugefügt
     pub async fn create(&mut self, mut name: String, is_folder: bool, content: Vec<u8>, system_override: bool, lock_pass: Option<String>, metadata: Option<String>) -> Result<String, PytjaError> {        if !system_override {
             if !is_folder {
                 let has_valid_ext = ALLOWED_TEXT_EXTENSIONS.iter().any(|&ext| name.ends_with(ext));
@@ -84,7 +77,6 @@ impl VirtualFileSystem {
         }
 
         let full_path = self.resolve_path(&name);
-        // FIX: .await beim DB Zugriff
         let db = self.get_db().await.ok_or(PytjaError::System("DB not connected".into()))?;
 
         if db.get_node(&full_path).await?.is_some() {
@@ -221,7 +213,6 @@ impl VirtualFileSystem {
     pub async fn edit_file(&self, filename: &str) -> anyhow::Result<()> {
         let file_path = self.resolve_path(filename);
 
-        // FIX: .await beim db() Aufruf
         let initial_content = if let Some(repo) = self.get_db().await {
             if let Ok(Some(node)) = repo.get_node(&file_path).await {
                 String::from_utf8(node.content).unwrap_or_default()
@@ -237,7 +228,6 @@ impl VirtualFileSystem {
 
         if status.success() {
             if let Ok(new_content) = std::fs::read_to_string(&temp_path) {
-                // FIX: .await beim db() Aufruf
                 if let Some(repo) = self.get_db().await {
                     let node = pytja_core::FileNode {
                         path: file_path.clone(),
@@ -312,7 +302,6 @@ impl VirtualFileSystem {
         new_node.permissions = 0;
         new_node.owner = self.user_id.clone();
         new_node.created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
-        // new_node.blob_id bleibt gleich, da wir lokal arbeiten und blob_id None ist
 
         db.save_node(&new_node).await?;
         Ok(format!("Copied to {}", new_path_str))
@@ -354,7 +343,6 @@ impl VirtualFileSystem {
 
         if host_path.is_dir() {
             println!("Starting recursive import of '{}'...", name);
-            // NEU: ', None' am Ende hinzugefügt
             match self.create(name.clone(), true, vec![], false, lock_pass.clone(), None).await {
                 Ok(_) => {}, Err(PytjaError::AlreadyExists(_)) => {}, Err(e) => return Err(e),
             }
@@ -364,7 +352,6 @@ impl VirtualFileSystem {
         } else {
             let content = fs::read(host_path).map_err(PytjaError::IoError)?;
             let current_pass = if recursive_lock { lock_pass } else { None };
-            // NEU: ', None' am Ende hinzugefügt
             self.create(name.clone(), false, content, true, current_pass, None).await?;
             Ok(format!("Imported file: {}", name))
         }
@@ -374,7 +361,6 @@ impl VirtualFileSystem {
                             -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PytjaError>> + Send + 'a>> {
         Box::pin(async move {
             let entries = fs::read_dir(&host_path).map_err(PytjaError::IoError)?;
-            // FIX: get_db returns Option, handle it
             let db = self.get_db().await.ok_or(PytjaError::System("DB not connected".into()))?;
 
             for entry in entries {
@@ -433,7 +419,6 @@ impl VirtualFileSystem {
     pub async fn grep(&self, query: &str) -> Result<Vec<String>, PytjaError> {
         let mut matches = Vec::new();
         let db = self.get_db().await.ok_or(PytjaError::System("DB not connected".into()))?;
-        // FIX: Explicit type to satisfy compiler
         let all_files: Vec<(String, Vec<u8>)> = db.get_all_files_content().await?;
 
         for (path, content) in all_files {
@@ -455,7 +440,6 @@ impl VirtualFileSystem {
     fn print_tree_recursive(&self, path: String, prefix: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), PytjaError>> + Send + '_>> {
         Box::pin(async move {
             let db = self.get_db().await.ok_or(PytjaError::System("DB not connected".into()))?;
-            // FIX: Explicit type
             let items: Vec<FileNode> = db.list_directory(&path).await?;
             let mut sorted_items = items;
             sorted_items.sort_by(|a, b| b.is_folder.cmp(&a.is_folder).then(a.name.cmp(&b.name)));
@@ -465,7 +449,7 @@ impl VirtualFileSystem {
                 let is_last = i == count - 1;
                 let connector = if is_last { "└── " } else { "├── " };
                 let name_display = if item.is_folder { item.name.blue().bold() } else {
-                    let lock = if item.lock_pass.is_some() { "🔒" } else { "" };
+                    let lock = if item.lock_pass.is_some() { "" } else { "" };
                     format!("{}{}", item.name, lock).white()
                 };
                 println!("{}{}{}", prefix, connector, name_display);

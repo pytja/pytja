@@ -2,7 +2,6 @@ use serde_json::Value;
 use crate::network_client::PytjaClient;
 use super::models::RadarPermission;
 
-/// Verarbeitet alle eingehenden IPC-Anfragen für das "vfs" Modul.
 pub async fn handle_vfs_request(
     req: &Value,
     client: &PytjaClient,
