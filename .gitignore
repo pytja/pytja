@@ -16,4 +16,7 @@ daemon.log
 
 # Databases (SQLite Caches)
 *.db
-*.sqlite
+*.sqlitepytja-macos/
+pytja-linux/
+pytja-windows/
+*.zip

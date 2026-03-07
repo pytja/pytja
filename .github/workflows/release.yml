@@ -45,9 +45,9 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           mkdir -p ${{ matrix.target_dir }}
-          cp target/release/${{ matrix.bin_name }} ${{ matrix.target_dir }}/
+          cp target/release/${{ matrix.bin_name }} ${{ matrix.target_dir }}/${{ matrix.target_dir }}
           cp README.txt ${{ matrix.target_dir }}/
-          chmod +x ${{ matrix.target_dir }}/${{ matrix.bin_name }}
+          chmod +x ${{ matrix.target_dir }}/${{ matrix.target_dir }}
           zip -r ${{ matrix.target_dir }}.zip ${{ matrix.target_dir }}
 
       - name: Prepare Windows Artifacts
@@ -55,7 +55,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path ${{ matrix.target_dir }}
-          Copy-Item -Path "target\release\${{ matrix.bin_name }}" -Destination "${{ matrix.target_dir }}\"
+          Copy-Item -Path "target\release\${{ matrix.bin_name }}" -Destination "${{ matrix.target_dir }}\${{ matrix.target_dir }}.exe"
           Copy-Item -Path "README.txt" -Destination "${{ matrix.target_dir }}\"
           Compress-Archive -Path "${{ matrix.target_dir }}" -DestinationPath "${{ matrix.target_dir }}.zip"
 
