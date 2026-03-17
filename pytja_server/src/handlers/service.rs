@@ -6,6 +6,7 @@ use tonic::{Status, metadata::MetadataMap};
 use jsonwebtoken::{decode, Validation, DecodingKey};
 use std::env;
 use pytja_proto::pytja::LogStreamEntry;
+use crate::plugin_manager::PluginManager;
 
 pub const DEFAULT_QUOTA_LIMIT: usize = 1024 * 1024 * 1024;
 
@@ -16,6 +17,7 @@ pub struct MyPytjaService {
     pub config: AppConfig,
     pub storage: Arc<dyn BlobStorage>,
     pub log_broadcast: broadcast::Sender<LogStreamEntry>,
+    pub plugins: Arc<PluginManager>,
 }
 
 impl MyPytjaService {

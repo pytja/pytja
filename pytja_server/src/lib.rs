@@ -16,6 +16,8 @@ mod plugin_manager;
 
 use crate::session_manager::SessionManager;
 use crate::handlers::service::MyPytjaService;
+// --- NEU: Import des PluginManagers ---
+use crate::plugin_manager::PluginManager;
 
 #[tonic::async_trait]
 impl PytjaService for MyPytjaService {
@@ -142,12 +144,40 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let (tx, _rx) = broadcast::channel(100);
+
+    // =========================================================================
+    // --- ENTERPRISE WASM PLUGIN MANAGER INITIALIZATION ---
+    // =========================================================================
+    println!("Initializing WASM Plugin Manager...");
+    let plugin_manager = Arc::new(PluginManager::new()?);
+    let plugins_dir = std::path::Path::new("plugins");
+
+    if plugins_dir.exists() && plugins_dir.is_dir() {
+        let mut entries = tokio::fs::read_dir(plugins_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                let file_name = path.file_stem().unwrap().to_str().unwrap().to_string();
+                let bytes = tokio::fs::read(&path).await?;
+
+                // JIT-Kompilierung und Caching im RAM
+                plugin_manager.load_plugin(&file_name, bytes).await?;
+                println!("Loaded and cached WASM plugin: {}", file_name);
+            }
+        }
+    } else {
+        println!("No 'plugins' directory found. Skipping WASM autoload.");
+    }
+    // =========================================================================
+
+    // Instanziierung des Pytja Services mit dem neuen PluginManager
     let service = MyPytjaService {
         manager: manager.clone(),
         sessions: session_mgr,
         config: config.clone(),
         storage,
         log_broadcast: tx.clone(),
+        plugins: plugin_manager, // --- NEU: Zuweisung in die Struktur ---
     };
 
     let _addr_str = format!("{}:{}", config.server.host, config.server.port);

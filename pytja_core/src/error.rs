@@ -32,3 +32,16 @@ pub enum PytjaError {
     #[error("Internal System Error: {0}")]
     System(String),
 }
+
+impl From<PytjaError> for std::io::Error {
+    fn from(err: PytjaError) -> Self {
+        match err {
+            // Wenn es bereits ein System/IO-Fehler als String ist, nutzen wir Other
+            PytjaError::System(msg) => std::io::Error::new(std::io::ErrorKind::Other, msg),
+            // Quota-Fehler werden als 'DiskFull' oder 'PermissionDenied' interpretiert
+            PytjaError::QuotaExceeded { .. } => std::io::Error::new(std::io::ErrorKind::StorageFull, err.to_string()),
+            // Alle anderen Fehler werden als generische I/O-Fehler weitergegeben
+            _ => std::io::Error::new(std::io::ErrorKind::Other, err.to_string()),
+        }
+    }
+}

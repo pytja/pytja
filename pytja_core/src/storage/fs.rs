@@ -37,22 +37,31 @@ impl FileSystemStorage {
 
 #[async_trait]
 impl BlobStorage for FileSystemStorage {
-    async fn put(&self, path: &str, mut stream: BoxStream<'static, Result<Bytes, PytjaError>>) -> Result<String, PytjaError> {
+    async fn put(&self, path: &str, stream: BoxStream<'static, Result<Bytes, PytjaError>>) -> Result<String, PytjaError> {
+        // 1. Pfad absichern und Zielverzeichnis vorbereiten
         let full_path = self.sanitize_path(path)?;
-        
+
         if let Some(parent) = full_path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| PytjaError::System(e.to_string()))?;
         }
-        
+
+        // 2. Datei für den Schreibvorgang erstellen
         let mut file = fs::File::create(&full_path).await.map_err(|e| PytjaError::System(e.to_string()))?;
 
-        while let Some(chunk_res) = stream.next().await {
-            let chunk = chunk_res?;
-            file.write_all(&chunk).await.map_err(|e| PytjaError::System(e.to_string()))?;
-        }
+        // --- START ZERO-COPY STREAMING PIPELINE ---
+        // Wir konvertieren den Stream explizit in einen Result-kompatiblen Stream für IO
+        let io_stream = stream.map(|res| res.map_err(std::io::Error::from));
+        let mut reader = tokio_util::io::StreamReader::new(io_stream);
 
+        tokio::io::copy(&mut reader, &mut file)
+            .await
+            .map_err(|e| PytjaError::System(format!("Streaming-IO Error: {}", e)))?;
+        // --- ENDE ZERO-COPY STREAMING PIPELINE ---
+
+        // Sicherstellen, dass alle Daten physisch geschrieben wurden
         file.flush().await.map_err(|e| PytjaError::System(e.to_string()))?;
-        
+
+        // Relativen Pfad für die Datenbank-Speicherung extrahieren
         let relative_path = full_path.strip_prefix(&self.base_path)
             .unwrap_or(&full_path)
             .to_string_lossy()

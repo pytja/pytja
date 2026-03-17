@@ -1,4 +1,4 @@
-use wasmtime::{Config, Engine, Instance, Linker, Module, Store};
+use wasmtime::{Config, Engine, Linker, Module, Store};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
@@ -7,20 +7,18 @@ use anyhow::{Result, anyhow};
 #[derive(Clone)]
 pub struct PluginManager {
     engine: Engine,
-    // Der Thread-sichere Cache für vorkompilierte Maschinencode-Module
     module_cache: Arc<RwLock<HashMap<String, Module>>>,
 }
 
 impl PluginManager {
-    /// Initialisiert die Wasmtime-Engine mit maximaler Optimierung
     pub fn new() -> Result<Self> {
         let mut config = Config::new();
-        // Wir nutzen den Cranelift-Compiler auf der höchsten Optimierungsstufe
         config.cranelift_opt_level(wasmtime::OptLevel::SpeedAndSize);
-        // Da wir Tokio's spawn_blocking nutzen, brauchen wir keinen internen Async-Overhead von Wasmtime
-        config.async_support(false);
+        // config.async_support(false); <--- ENTFERNT, da Feature deaktiviert ist
 
-        let engine = Engine::new(&config)?;
+        // Explizites Error-Mapping für anyhow
+        let engine = Engine::new(&config)
+            .map_err(|e| anyhow!("Failed to initialize Wasmtime Engine: {}", e))?;
 
         Ok(Self {
             engine,
@@ -28,23 +26,17 @@ impl PluginManager {
         })
     }
 
-    // =========================================================================
-    // --- 1. MODULE CACHING (Compile Once) ---
-    // =========================================================================
-
-    /// Lädt eine .wasm Datei, kompiliert sie zu nativem Maschinencode und
-    /// speichert sie dauerhaft im RAM ab.
     pub async fn load_plugin(&self, plugin_name: &str, wasm_bytes: Vec<u8>) -> Result<()> {
         let engine_clone = self.engine.clone();
 
-        // CPU-Offloading: Kompilieren blockiert den Thread massiv!
         let module = tokio::task::spawn_blocking(move || {
+            // Explizites Error-Mapping innerhalb des Worker-Threads
             Module::new(&engine_clone, &wasm_bytes)
+                .map_err(|e| anyhow!("WASM Compilation error: {}", e))
         })
             .await
-            .map_err(|e| anyhow!("Task Panicked during WASM compilation: {}", e))??;
+            .map_err(|e| anyhow!("Task Panicked during WASM compilation: {}", e))??; // Doppel-? ist hier korrekt (1x für JoinError, 1x für ModuleError)
 
-        // Modul in den Cache schreiben (Write-Lock)
         let mut cache = self.module_cache.write().await;
         cache.insert(plugin_name.to_string(), module);
 
@@ -52,38 +44,63 @@ impl PluginManager {
     }
 
     // =========================================================================
-    // --- 2. FAST INSTANTIATION (Run Many) ---
+    // --- FAST INSTANTIATION & ABI EXECUTION (Run Many) ---
     // =========================================================================
 
-    /// Klont eine leichtgewichtige Instanz aus dem vorgehaltenen Modul und
-    /// führt die Datenverarbeitung aus. Dauer: Nanosekunden.
     pub async fn execute_plugin(&self, plugin_name: &str, input_data: Vec<u8>) -> Result<Vec<u8>> {
-        // 1. Modul aus dem Cache lesen (Nur Read-Lock, blockiert keine anderen parallelen Aufrufe)
         let module = {
             let cache = self.module_cache.read().await;
             cache.get(plugin_name)
-                .cloned() // Module in Wasmtime sind intern Referenz-gezählt (Arc), Klonen ist also extrem billig
+                .cloned()
                 .ok_or_else(|| anyhow!("Plugin '{}' not found in cache", plugin_name))?
         };
 
         let engine = self.engine.clone();
 
-        // 2. CPU-Offloading: Die eigentliche Datenverarbeitung der KI oder des Skripts
         tokio::task::spawn_blocking(move || {
-            // Ein "Store" isoliert den Sandbox-Speicher für genau diese eine Ausführung
             let mut store = Store::new(&engine, ());
             let linker = Linker::new(&engine);
 
-            // Instanziierung aus dem bereits kompilierten Modul (Zero-Overhead)
+            // Zero-Overhead Instanziierung
             let instance = linker.instantiate(&mut store, &module)
                 .map_err(|e| anyhow!("WASM Instantiation failed: {}", e))?;
 
-            // --- Abstrahierte WASM Ausführung ---
-            // In der Realität würdest du hier Speicher in die WASM-Sandbox kopieren,
-            // die Export-Funktion (z.B. "process_data") aufrufen und das Ergebnis auslesen.
-            // ...
+            // 1. WASM Exports abrufen (Memory und Funktionen)
+            let memory = instance.get_memory(&mut store, "memory")
+                .ok_or_else(|| anyhow!("WASM module must export 'memory'"))?;
 
-            Ok(input_data) // Platzhalter-Rückgabe
+            let alloc_func = instance.get_typed_func::<u32, u32>(&mut store, "alloc")
+                .map_err(|_| anyhow!("WASM module must export 'alloc(u32) -> u32'"))?;
+
+            let process_func = instance.get_typed_func::<(u32, u32), u64>(&mut store, "process")
+                .map_err(|_| anyhow!("WASM module must export 'process(u32, u32) -> u64'"))?;
+
+            // 2. Speicher in der Sandbox allozieren
+            let input_len = input_data.len() as u32;
+            let input_ptr = alloc_func.call(&mut store, input_len)
+                .map_err(|e| anyhow!("Failed to allocate memory in WASM: {}", e))?;
+
+            // 3. Daten vom Host (Server) in die WASM-Sandbox kopieren
+            memory.write(&mut store, input_ptr as usize, &input_data)
+                .map_err(|e| anyhow!("Failed to write to WASM memory: {}", e))?;
+
+            // 4. KI- oder Datenverarbeitungs-Logik ausführen
+            // Die WASM-Funktion gibt einen u64 zurück (die oberen 32 Bit sind der Pointer, die unteren 32 Bit die Länge)
+            let result_packed = process_func.call(&mut store, (input_ptr, input_len))
+                .map_err(|e| anyhow!("Plugin execution failed: {}", e))?;
+
+            let result_ptr = (result_packed >> 32) as u32;
+            let result_len = (result_packed & 0xFFFFFFFF) as u32;
+
+            // 5. Ergebnis aus der Sandbox zurück zum Host kopieren
+            let mut output_data = vec![0u8; result_len as usize];
+            memory.read(&mut store, result_ptr as usize, &mut output_data)
+                .map_err(|e| anyhow!("Failed to read from WASM memory: {}", e))?;
+
+            // Optional: Hier könnte man noch eine `dealloc` Funktion aufrufen,
+            // da die Instance aber nach diesem Block zerstört wird, wird der Speicher ohnehin freigegeben.
+
+            Ok(output_data)
         })
             .await
             .map_err(|e| anyhow!("Task Panicked during WASM execution: {}", e))?

@@ -37,3 +37,4 @@ sysinfo = "0.29"
 tokio-stream = { version = "0.1", features = ["sync"] }
 dotenvy = "0.15"
 anyhow = "1.0.102"
+wasmtime = { version = "42.0.1", default-features = false, features = ["cranelift", "runtime", "std"] }

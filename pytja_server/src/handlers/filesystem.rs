@@ -13,33 +13,34 @@ use colored::Colorize;
 
 impl MyPytjaService {
 
-    // --- LIST (LS) ---
+    // --- LIST (LS) WITH PAGINATION ---
     pub async fn list_directory_impl(&self, request: Request<ListRequest>) -> Result<Response<ListResponse>, Status> {
-        // 1. Auth & RBAC Check (bleibt unverändert)
         let claims = self.check_permissions(request.metadata(), Some("core:fs:read")).await?;
         let req = request.into_inner();
 
-        // 2. Enterprise Cache-Key generieren (User-Isoliert!)
-        // Format: vfs:ls:<username>:<pfad>
-        let cache_key = format!("vfs:ls:{}:{}", claims.sub, req.path);
+        // 1. Enterprise Pagination Defaults (Sicherheitsnetz)
+        // Wenn der Client 0 sendet (altes Verhalten), limitieren wir auf 1000.
+        // Hartes Limit bei 10.000, um Missbrauch zu verhindern.
+        let limit = if req.limit == 0 { 1000 } else { req.limit.min(10000) };
+        let offset = req.offset;
 
-        // 3. L1 Cache Read (Redis)
-        // Hinweis: Passe `self.sessions` an deinen exakten Variablennamen an,
-        // falls die Redis-Methoden in `self.manager` oder woanders liegen.
+        // 2. Neues sicheres Cache-Key Schema
+        let cache_key = format!("vfs:dir:{}:{}:{}:{}", req.path, claims.sub, limit, offset);
+
+        // 3. L1 Cache Read
         if let Ok(Some(cached_data)) = self.sessions.get_cached_bytes(&cache_key).await {
-            // Zero-Copy Protobuf Decoding
             if let Ok(response) = ListResponse::decode(&cached_data[..]) {
                 return Ok(Response::new(response));
             }
         }
 
-        // 4. Cache Miss: L2 Database Query (SQL)
+        // 4. L2 Database Query
         let (repo, relative_path) = self.resolve_repo(&req.path).await?;
         let mut nodes = repo.list_directory_secure(&relative_path, &claims.sub, &claims.role)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        // Dynamische Mounts ins Root-Verzeichnis injizieren
+        // Mounts ins Root-Verzeichnis injizieren
         if req.path == "/" || req.path.is_empty() {
             let mounts = self.manager.list_mounts().await;
             for mount_name in mounts {
@@ -60,23 +61,38 @@ impl MyPytjaService {
             }
         }
 
-        // 5. Protobuf Mapping
-        let proto_files = nodes.into_iter().map(|node| FileInfo {
-            name: node.name,
+        // 5. Application-Level Pagination (Slicing)
+        let total_count = nodes.len() as u32;
+        let start = offset as usize;
+        let end = (start + limit as usize).min(nodes.len());
+
+        let paged_nodes = if start < nodes.len() {
+            &nodes[start..end]
+        } else {
+            &[] // Offset ist größer als die Liste
+        };
+
+        let has_more = end < nodes.len();
+
+        // 6. Protobuf Mapping
+        let proto_files = paged_nodes.iter().map(|node| FileInfo {
+            name: node.name.clone(),
             is_folder: node.is_folder,
             size: node.size as u64,
-            owner: node.owner,
+            owner: node.owner.clone(),
             permissions: node.permissions as u32,
             created_at: node.created_at,
         }).collect();
 
-        let response = ListResponse { files: proto_files };
+        let response = ListResponse {
+            files: proto_files,
+            has_more,
+            total_count,
+        };
 
-        // 6. L1 Cache Write (Redis)
+        // 7. L1 Cache Write (Speichert nur die aktuelle Seite!)
         let mut encoded_bytes = Vec::new();
         if response.encode(&mut encoded_bytes).is_ok() {
-            // Caching für 5 Minuten (300 Sekunden).
-            // Bei hochdynamischen Systemen kann dieser Wert auf z.B. 30 Sekunden gesenkt werden.
             let _ = self.sessions.set_cached_bytes(&cache_key, &encoded_bytes, 300).await;
         }
 
@@ -136,31 +152,43 @@ impl MyPytjaService {
                 Ok(req) => match req.data {
                     Some(UploadData::Chunk(data)) => {
                         let len = data.len();
+
+                        // 1. Sicherheits-Check: Quota
                         if current_usage + upload_session_bytes + len > limit {
-                            return Err(PytjaError::QuotaExceeded { current: current_usage + upload_session_bytes, limit });
+                            return Err(PytjaError::QuotaExceeded {
+                                current: current_usage + upload_session_bytes,
+                                limit
+                            });
                         }
                         upload_session_bytes += len;
 
-                        // 1. Quota & Progress Update (Alle 5 MB)
+                        // 2. Redis Progress Update (Alle 5 MB)
                         if upload_session_bytes - last_redis_update > 5 * 1024 * 1024 {
                             let sm = session_manager.clone();
                             let o = owner_clone.clone();
                             let p = path_clone.clone();
                             let delta = upload_session_bytes - last_redis_update;
-                            tokio::spawn(async move { sm.update_upload_progress(&o, &p, delta).await; });
+                            tokio::spawn(async move {
+                                let _ = sm.update_upload_progress(&o, &p, delta as usize).await;
+                            });
                             last_redis_update = upload_session_bytes;
                         }
 
-                        // 2. Enterprise Watchdog / Lock Extension (Alle 10 Sekunden)
+                        // 3. Enterprise Watchdog / Lock Extension (Alle 10 Sekunden)
                         if last_lock_extension.elapsed().as_secs() > 10 {
                             let sm = session_manager.clone();
                             let o = owner_clone.clone();
                             let p = path_clone.clone();
-                            // Lock wieder auf 30 Sekunden aufladen
-                            tokio::spawn(async move { sm.extend_lock(&p, &o, 30000).await; });
+                            // Lock-Lifetime in Redis verlängern
+                            tokio::spawn(async move {
+                                let _ = sm.extend_lock(&p, &o, 30000).await;
+                            });
                             last_lock_extension = std::time::Instant::now();
                         }
 
+                        // --- ZERO-COPY OPTIMIERUNG ---
+                        // Bytes::from(data) übernimmt das Ownership des Vec<u8> vom gRPC-Request,
+                        // ohne die Daten im RAM neu zu allozieren oder zu kopieren.
                         Ok(Bytes::from(data))
                     },
                     _ => Ok(Bytes::new()),
@@ -639,15 +667,37 @@ impl MyPytjaService {
     pub async fn exec_script_impl(&self, request: Request<ExecRequest>) -> Result<Response<ReceiverStream<Result<ExecResponse, Status>>>, Status> {
         let claims = self.check_permissions(request.metadata(), Some("core:exec")).await?;
         let req = request.into_inner();
-        let (_repo, _rel) = self.resolve_repo(&req.script_path).await?;
-        if let Some(primary) = self.manager.get_repo("primary").await { let _ = primary.log_action(&claims.sub, "EXEC", &req.script_path).await; }
+
+        // Loggen der Ausführung
+        if let Some(primary) = self.manager.get_repo("primary").await {
+            let _ = primary.log_action(&claims.sub, "EXEC", &req.script_path).await;
+        }
+
+        // Wir erwarten, dass der Nutzer den Plugin-Namen ohne .wasm übergibt, z.B. "test_plugin"
+        let plugin_name = req.script_path.trim_start_matches('/').trim_end_matches(".wasm").to_string();
+        let plugin_manager = self.plugins.clone();
+
+        // Optional: Die Argumente der Anfrage als Input für das Plugin verwenden.
+        // Hier simulieren wir einen Input (könnte auch JSON sein).
+        let input_bytes = b"Trigger_KI_Pipeline".to_vec();
 
         let (tx, rx) = mpsc::channel(4);
+
         tokio::spawn(async move {
-            let _ = tx.send(Ok(ExecResponse { output_line: "Remote Execution initiated...".into() })).await;
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            let _ = tx.send(Ok(ExecResponse { output_line: "Result: [Function executed successfully]".into() })).await;
+            let _ = tx.send(Ok(ExecResponse { output_line: format!("Executing cached plugin: {}...", plugin_name) })).await;
+
+            // Führe das vorkompilierte Plugin in Nanosekunden aus
+            match plugin_manager.execute_plugin(&plugin_name, input_bytes).await {
+                Ok(result_bytes) => {
+                    let result_str = String::from_utf8_lossy(&result_bytes);
+                    let _ = tx.send(Ok(ExecResponse { output_line: format!("Result: {}", result_str) })).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(Ok(ExecResponse { output_line: format!("ERROR: {}", e) })).await;
+                }
+            }
         });
+
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
@@ -691,7 +741,11 @@ impl MyPytjaService {
             owner: node.owner, permissions: node.permissions as u32, created_at: node.created_at,
         }).collect();
 
-        Ok(Response::new(pytja_proto::pytja::ListResponse { files: proto_files }))
+        Ok(Response::new(pytja_proto::pytja::ListResponse {
+            files: proto_files,
+            has_more: false,
+            total_count: 0,
+        }))
     }
 }
 

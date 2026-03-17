@@ -109,7 +109,12 @@ impl PytjaClient {
 
     pub async fn list_files(&self, path: &str) -> Result<Vec<FileInfo>> {
         let mut client = self.client.lock().await;
-        let req = self.auth_req(ListRequest { path: path.to_string(), auth_token: "".into() }).await;
+        let req = self.auth_req(ListRequest {
+            path: path.to_string(),
+            auth_token: "".into(),
+            limit: 0,
+            offset: 0,
+        }).await;
         let resp = client.list_directory(req).await?.into_inner();
         Ok(resp.files)
     }
