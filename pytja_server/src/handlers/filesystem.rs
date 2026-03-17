@@ -24,8 +24,17 @@ impl MyPytjaService {
         let limit = if req.limit == 0 { 1000 } else { req.limit.min(10000) };
         let offset = req.offset;
 
-        // 2. Neues sicheres Cache-Key Schema
-        let cache_key = format!("vfs:dir:{}:{}:{}:{}", req.path, claims.sub, limit, offset);
+        // --- ENTERPRISE PATH NORMALIZATION ---
+        let mut clean_path = req.path.clone();
+        if clean_path.is_empty() {
+            clean_path = "/".to_string();
+        } else if !clean_path.starts_with('/') {
+            clean_path = format!("/{}", clean_path);
+        }
+
+        // Nutze nun clean_path statt req.path für den Cache Key
+        let cache_key = format!("vfs:dir:{}:{}:{}:{}", clean_path, claims.sub, limit, offset);
+        // -------------------------------------
 
         // 3. L1 Cache Read
         if let Ok(Some(cached_data)) = self.sessions.get_cached_bytes(&cache_key).await {
@@ -752,13 +761,21 @@ impl MyPytjaService {
 use prost::Message; // Zwingend erforderlich für schnelles Protobuf-Encoding
 
 fn get_parent_directory(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed.is_empty() {
+    // 1. Pfad bereinigen und zwingend absolut machen
+    let mut clean = path.trim_end_matches('/').to_string();
+    if !clean.starts_with('/') {
+        clean = format!("/{}", clean);
+    }
+
+    // 2. Root-Verzeichnis abfangen
+    if clean == "/" || clean.is_empty() {
         return "/".to_string();
     }
-    match trimmed.rfind('/') {
+
+    // 3. Parent ermitteln
+    match clean.rfind('/') {
         Some(0) => "/".to_string(),
-        Some(idx) => trimmed[..idx].to_string(),
+        Some(idx) => clean[..idx].to_string(),
         None => "/".to_string(),
     }
 }

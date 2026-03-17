@@ -285,14 +285,18 @@ impl SessionManager {
     pub async fn invalidate_directory_cache(&self, path: &str) -> Result<(), redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
 
-        // Finde alle Cache-Keys, die auf diesen Pfad enden, unabhängig vom User
-        let pattern = format!("vfs:ls:*:{p}", p = path);
+        // 1. Präzises Pattern-Matching für den Ordner
+        let pattern = format!("vfs:dir:{p}:*", p = path);
         let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
 
         if !keys.is_empty() {
-            // Explizite Typ-Deklaration ::<()> für Rust 2024 Kompatibilität
-            redis::cmd("DEL").arg(&keys).query_async::<()>(&mut conn).await?;
+            // --- ENTERPRISE FIX ---
+            // Wir mappen die Rückgabe zwingend auf i64, da der Redis 'DEL' Befehl
+            // die Anzahl der gelöschten Keys als Integer zurückgibt.
+            // Ein ignorierter Type-Mismatch bricht hier sonst asynchron ab!
+            let _deleted_count: i64 = redis::cmd("DEL").arg(&keys).query_async(&mut conn).await?;
         }
+
         Ok(())
     }
 
