@@ -54,6 +54,15 @@ impl MyPytjaService {
             }
         }
 
+        // --- RATE LIMITING (DDoS Protection) ---
+        let is_allowed = self.sessions.check_rate_limit(&token_data.claims.sub, 500)
+            .await
+            .unwrap_or(true);
+
+        if !is_allowed {
+            return Err(Status::resource_exhausted("Rate limit exceeded (Max 500 requests/sec). Please slow down."));
+        }
+
         if let Some(perm) = required_perm {
             let has_perm = token_data.claims.permissions.contains(perm)
                 || token_data.claims.permissions.contains("*");
@@ -61,6 +70,7 @@ impl MyPytjaService {
                 return Err(Status::permission_denied(format!("Missing permission: '{}'", perm)));
             }
         }
+
         Ok(token_data.claims)
     }
 

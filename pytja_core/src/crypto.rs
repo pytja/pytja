@@ -115,4 +115,41 @@ impl CryptoService {
 
         Ok(plaintext)
     }
+
+    // =========================================================================
+    // --- CPU-OFFLOADING (TOKIO SPAWN BLOCKING) ---
+    // =========================================================================
+
+    pub async fn encrypt_private_key_local_async(priv_key: SigningKey, password: String) -> anyhow::Result<String> {
+        // Wir verschieben die Berechnung auf einen dedizierten CPU-Thread
+        tokio::task::spawn_blocking(move || {
+            Self::encrypt_private_key_local(&priv_key, &password)
+        })
+            .await
+            .map_err(|e| anyhow::anyhow!("CPU Task Panicked: {}", e))?
+    }
+
+    pub async fn decrypt_private_key_local_async(encrypted_b64: String, password: String) -> anyhow::Result<SigningKey> {
+        tokio::task::spawn_blocking(move || {
+            Self::decrypt_private_key_local(&encrypted_b64, &password)
+        })
+            .await
+            .map_err(|e| anyhow::anyhow!("CPU Task Panicked: {}", e))?
+    }
+
+    pub async fn encrypt_e2e_async(key: [u8; 32], plaintext: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+        tokio::task::spawn_blocking(move || {
+            Self::encrypt_e2e(&key, &plaintext)
+        })
+            .await
+            .map_err(|e| anyhow::anyhow!("CPU Task Panicked: {}", e))?
+    }
+
+    pub async fn decrypt_e2e_async(key: [u8; 32], payload: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+        tokio::task::spawn_blocking(move || {
+            Self::decrypt_e2e(&key, &payload)
+        })
+            .await
+            .map_err(|e| anyhow::anyhow!("CPU Task Panicked: {}", e))?
+    }
 }

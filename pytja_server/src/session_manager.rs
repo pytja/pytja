@@ -171,7 +171,7 @@ impl SessionManager {
         }
     }
 
-    // --- DISTRIBUTED FILE LOCKING ---
+    // --- DISTRIBUTED FILE LOCKING (Enterprise) ---
 
     pub async fn try_lock_file(&self, path: &str, owner: &str) -> bool {
         if let Ok(mut conn) = self.client.get_multiplexed_async_connection().await {
@@ -179,15 +179,38 @@ impl SessionManager {
             let path_b64 = general_purpose::STANDARD.encode(path);
             let key = format!("lock:file:{}", path_b64);
 
-            let result: Option<String> = redis::cmd("SET")
+            let result: redis::RedisResult<Option<String>> = redis::cmd("SET")
                 .arg(&key)
                 .arg(owner)
                 .arg("NX")
                 .arg("PX")
-                .arg(30000)
-                .query_async(&mut conn).await.unwrap_or(None);
+                .arg(30000) // Initialer Lock für 30 Sekunden
+                .query_async(&mut conn).await;
 
-            return result.is_some();
+            if let Ok(Some(val)) = result {
+                return val == "OK";
+            }
+        }
+        false
+    }
+
+    pub async fn extend_lock(&self, path: &str, owner: &str, ttl_ms: u64) -> bool {
+        if let Ok(mut conn) = self.client.get_multiplexed_async_connection().await {
+            use base64::{Engine as _, engine::general_purpose};
+            let path_b64 = general_purpose::STANDARD.encode(path);
+            let key = format!("lock:file:{}", path_b64);
+
+            // Lua-Script garantiert Atomarität: Nur der Besitzer darf verlängern
+            let script = redis::Script::new(r"
+                if redis.call('get', KEYS[1]) == ARGV[1] then
+                    return redis.call('pexpire', KEYS[1], ARGV[2])
+                else
+                    return 0
+                end
+            ");
+
+            let result: redis::RedisResult<i32> = script.key(&key).arg(owner).arg(ttl_ms).invoke_async(&mut conn).await;
+            return matches!(result, Ok(1));
         }
         false
     }
@@ -206,7 +229,8 @@ impl SessionManager {
                 end
             ");
 
-            let _: redis::RedisResult<i32> = script.key(&key).arg(owner).invoke_async(&mut conn).await;
+            // Explizites ::<()> für Rust 2024 Never-Type Fallback Kompatibilität
+            let _: redis::RedisResult<()> = script.key(&key).arg(owner).invoke_async::<()>(&mut conn).await;
         }
     }
 
@@ -241,5 +265,55 @@ impl SessionManager {
             let key = format!("quota:{}", username);
             let _: redis::RedisResult<()> = conn.del(key).await;
         }
+    }
+
+    // --- VFS CACHE LAYER ---
+
+    pub async fn get_cached_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, redis::RedisError> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let data: Option<Vec<u8>> = redis::cmd("GET").arg(key).query_async(&mut conn).await?;
+        Ok(data)
+    }
+
+    pub async fn set_cached_bytes(&self, key: &str, data: &[u8], ttl_seconds: u64) -> Result<(), redis::RedisError> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        // Explizite Typ-Deklaration ::<()> für Rust 2024 Kompatibilität
+        redis::cmd("SETEX").arg(key).arg(ttl_seconds).arg(data).query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
+    pub async fn invalidate_directory_cache(&self, path: &str) -> Result<(), redis::RedisError> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        // Finde alle Cache-Keys, die auf diesen Pfad enden, unabhängig vom User
+        let pattern = format!("vfs:ls:*:{p}", p = path);
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
+
+        if !keys.is_empty() {
+            // Explizite Typ-Deklaration ::<()> für Rust 2024 Kompatibilität
+            redis::cmd("DEL").arg(&keys).query_async::<()>(&mut conn).await?;
+        }
+        Ok(())
+    }
+
+    // --- RATE LIMITING ---
+
+    /// Prüft, ob ein Nutzer das Limit von X Anfragen pro Sekunde überschritten hat.
+    /// Nutzt ein atomares Redis-Pipelining für ein Fixed-Window im Sekunden-Takt.
+    pub async fn check_rate_limit(&self, identifier: &str, limit: i64) -> Result<bool, redis::RedisError> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+
+        // Das aktuelle Zeitfenster (Sekundengenau)
+        let current_second = chrono::Utc::now().timestamp();
+        let key = format!("ratelimit:{}:{}", identifier, current_second);
+
+        // Atomare Inkrementierung und TTL-Setzung in einem einzigen Netzwerk-Call
+        let (count, _): (i64, ()) = redis::pipe()
+            .atomic()
+            .incr(&key, 1)
+            .expire(&key, 2) // Key nach 2 Sekunden automatisch löschen, um RAM sauber zu halten
+            .query_async(&mut conn).await?;
+
+        Ok(count <= limit)
     }
 }

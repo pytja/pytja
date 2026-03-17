@@ -12,6 +12,7 @@ use colored::*;
 
 mod session_manager;
 mod handlers;
+mod plugin_manager;
 
 use crate::session_manager::SessionManager;
 use crate::handlers::service::MyPytjaService;

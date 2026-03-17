@@ -15,15 +15,31 @@ impl MyPytjaService {
 
     // --- LIST (LS) ---
     pub async fn list_directory_impl(&self, request: Request<ListRequest>) -> Result<Response<ListResponse>, Status> {
-
+        // 1. Auth & RBAC Check (bleibt unverändert)
         let claims = self.check_permissions(request.metadata(), Some("core:fs:read")).await?;
-
         let req = request.into_inner();
 
+        // 2. Enterprise Cache-Key generieren (User-Isoliert!)
+        // Format: vfs:ls:<username>:<pfad>
+        let cache_key = format!("vfs:ls:{}:{}", claims.sub, req.path);
+
+        // 3. L1 Cache Read (Redis)
+        // Hinweis: Passe `self.sessions` an deinen exakten Variablennamen an,
+        // falls die Redis-Methoden in `self.manager` oder woanders liegen.
+        if let Ok(Some(cached_data)) = self.sessions.get_cached_bytes(&cache_key).await {
+            // Zero-Copy Protobuf Decoding
+            if let Ok(response) = ListResponse::decode(&cached_data[..]) {
+                return Ok(Response::new(response));
+            }
+        }
+
+        // 4. Cache Miss: L2 Database Query (SQL)
         let (repo, relative_path) = self.resolve_repo(&req.path).await?;
+        let mut nodes = repo.list_directory_secure(&relative_path, &claims.sub, &claims.role)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
 
-        let mut nodes = repo.list_directory_secure(&relative_path, &claims.sub, &claims.role).await.map_err(|e| Status::internal(e.to_string()))?;
-
+        // Dynamische Mounts ins Root-Verzeichnis injizieren
         if req.path == "/" || req.path.is_empty() {
             let mounts = self.manager.list_mounts().await;
             for mount_name in mounts {
@@ -44,6 +60,7 @@ impl MyPytjaService {
             }
         }
 
+        // 5. Protobuf Mapping
         let proto_files = nodes.into_iter().map(|node| FileInfo {
             name: node.name,
             is_folder: node.is_folder,
@@ -53,7 +70,17 @@ impl MyPytjaService {
             created_at: node.created_at,
         }).collect();
 
-        Ok(Response::new(ListResponse { files: proto_files }))
+        let response = ListResponse { files: proto_files };
+
+        // 6. L1 Cache Write (Redis)
+        let mut encoded_bytes = Vec::new();
+        if response.encode(&mut encoded_bytes).is_ok() {
+            // Caching für 5 Minuten (300 Sekunden).
+            // Bei hochdynamischen Systemen kann dieser Wert auf z.B. 30 Sekunden gesenkt werden.
+            let _ = self.sessions.set_cached_bytes(&cache_key, &encoded_bytes, 300).await;
+        }
+
+        Ok(Response::new(response))
     }
 
     // --- UPLOAD ---
@@ -95,8 +122,11 @@ impl MyPytjaService {
 
         self.sessions.init_upload(&claims.sub, &metadata.path).await;
 
+        // --- Stream Tracking & Watchdog Initialisierung ---
         let mut upload_session_bytes = 0;
         let mut last_redis_update = 0;
+        let mut last_lock_extension = std::time::Instant::now();
+
         let session_manager = self.sessions.clone();
         let owner_clone = claims.sub.clone();
         let path_clone = metadata.path.clone();
@@ -110,6 +140,8 @@ impl MyPytjaService {
                             return Err(PytjaError::QuotaExceeded { current: current_usage + upload_session_bytes, limit });
                         }
                         upload_session_bytes += len;
+
+                        // 1. Quota & Progress Update (Alle 5 MB)
                         if upload_session_bytes - last_redis_update > 5 * 1024 * 1024 {
                             let sm = session_manager.clone();
                             let o = owner_clone.clone();
@@ -118,6 +150,17 @@ impl MyPytjaService {
                             tokio::spawn(async move { sm.update_upload_progress(&o, &p, delta).await; });
                             last_redis_update = upload_session_bytes;
                         }
+
+                        // 2. Enterprise Watchdog / Lock Extension (Alle 10 Sekunden)
+                        if last_lock_extension.elapsed().as_secs() > 10 {
+                            let sm = session_manager.clone();
+                            let o = owner_clone.clone();
+                            let p = path_clone.clone();
+                            // Lock wieder auf 30 Sekunden aufladen
+                            tokio::spawn(async move { sm.extend_lock(&p, &o, 30000).await; });
+                            last_lock_extension = std::time::Instant::now();
+                        }
+
                         Ok(Bytes::from(data))
                     },
                     _ => Ok(Bytes::new()),
@@ -164,6 +207,9 @@ impl MyPytjaService {
         if let Some(primary) = self.manager.get_repo("primary").await {
             let _ = primary.log_action(&claims.sub, "UPLOAD", &metadata.path).await;
         }
+
+        let parent_dir = get_parent_directory(&metadata.path);
+        let _ = self.sessions.invalidate_directory_cache(&parent_dir).await;
 
         Ok(Response::new(ActionResponse { success: true, message: "Upload complete".into() }))
     }
@@ -248,6 +294,10 @@ impl MyPytjaService {
         if let Some(primary) = self.manager.get_repo("primary").await {
             let _ = primary.log_action(&claims.sub, "CREATE", &req.path).await;
         }
+
+        let parent_dir = get_parent_directory(&req.path);
+        let _ = self.sessions.invalidate_directory_cache(&parent_dir).await;
+
         Ok(Response::new(ActionResponse { success: true, message: "Created successfully".into() }))
     }
 
@@ -304,6 +354,11 @@ impl MyPytjaService {
         self.sessions.unlock_file(&req.path, &claims.sub).await;
         res.map_err(|e| Status::internal(e.to_string()))?;
         self.sessions.invalidate_quota(&claims.sub).await;
+
+        let parent_dir = get_parent_directory(&req.path);
+        let _ = self.sessions.invalidate_directory_cache(&parent_dir).await;
+        let _ = self.sessions.invalidate_directory_cache(&req.path).await;
+
         Ok(Response::new(ActionResponse { success: true, message: "Deleted".into() }))
     }
 
@@ -377,6 +432,14 @@ impl MyPytjaService {
             Ok(_) => {
                 self.sessions.invalidate_quota(&claims.sub).await;
                 if let Some(primary) = self.manager.get_repo("primary").await { let _ = primary.log_action(&claims.sub, "MOVE", &format!("{}->{}", req.source_path, req.dest_path)).await; }
+
+                let src_parent = get_parent_directory(&req.source_path);
+                let dest_parent = get_parent_directory(&req.dest_path);
+                let _ = self.sessions.invalidate_directory_cache(&src_parent).await;
+                let _ = self.sessions.invalidate_directory_cache(&req.source_path).await;
+                let _ = self.sessions.invalidate_directory_cache(&dest_parent).await;
+                let _ = self.sessions.invalidate_directory_cache(&req.dest_path).await;
+
                 Ok(Response::new(ActionResponse { success: true, message: "Moved.".into() }))
             },
             Err(e) => Err(e)
@@ -629,5 +692,19 @@ impl MyPytjaService {
         }).collect();
 
         Ok(Response::new(pytja_proto::pytja::ListResponse { files: proto_files }))
+    }
+}
+
+use prost::Message; // Zwingend erforderlich für schnelles Protobuf-Encoding
+
+fn get_parent_directory(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return "/".to_string();
+    }
+    match trimmed.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(idx) => trimmed[..idx].to_string(),
+        None => "/".to_string(),
     }
 }
