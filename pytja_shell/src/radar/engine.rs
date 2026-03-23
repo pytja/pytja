@@ -181,8 +181,13 @@ impl RadarEngine {
 
             let mut radar_exports = Exports::new();
 
-            radar_exports.insert("host_log_status", Function::new_typed(&mut store, |code: i32| {
-                println!("\n[DAEMON EVENT] Process reported status: {}", code);
+            let log_tx_for_daemon = alarm_tx_for_daemon.clone();
+            let log_plugin_name = plugin_name_owned.clone();
+
+            radar_exports.insert("host_log_status", Function::new_typed(&mut store, move |code: i32| {
+                let _ = log_tx_for_daemon.try_send(
+                    format!("[{}] Process reported exit code: {}", log_plugin_name, code)
+                );
             }));
 
             let handle_abi = handle.clone();

@@ -45,6 +45,32 @@ pub async fn handle_vfs_request(
                 format!(r#"{{"status": "error", "message": "{}"}}"#, safe_err)
             }
         }
+    // --- NEU: ENTERPRISE APPEND LOGIC ---
+    } else if method == "write_append" {
+        if !allowed_perms.contains(&RadarPermission::FsWrite) {
+            return r#"{"status": "error", "message": "403 Forbidden: Missing fs_write permission"}"#.to_string();
+        }
+
+        let target_path = req["params"]["path"].as_str().unwrap_or("");
+        let content_str = req["params"]["content"].as_str().unwrap_or("");
+
+        // 1. Lese die bestehende Datei (falls vorhanden)
+        let mut final_content = Vec::new();
+        if let Ok((existing_data, _)) = client.read_file(target_path, None).await {
+            final_content.extend(existing_data);
+        }
+
+        // 2. Hänge die neuen Daten an
+        final_content.extend(content_str.as_bytes());
+
+        // 3. Speichere die Datei zurück in das VFS
+        match client.create_node(target_path, false, final_content, None, owner_id).await {
+            Ok(_) => r#"{"status": "success", "data": {"message": "File appended successfully"}}"#.to_string(),
+            Err(e) => {
+                let safe_err = e.to_string().replace("\"", "\\\"");
+                format!(r#"{{"status": "error", "message": "{}"}}"#, safe_err)
+            }
+        }
     } else {
         r#"{"status": "error", "message": "Method not implemented in VFS module"}"#.to_string()
     }

@@ -20,3 +20,5 @@ daemon.log
 pytja-linux/
 pytja-windows/
 *.zip
+
+/storage_blobs/

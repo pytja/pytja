@@ -12,6 +12,7 @@
       <sourceFolder url="file://$MODULE_DIR$/pytja_storage_commander/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/pytja_window/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/plugins/pytja_omni_agent/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
