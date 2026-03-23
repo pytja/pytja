@@ -56,28 +56,16 @@ async fn provision_infrastructure() -> Result<Option<String>> {
 
     println!("Generating zero-trust TLS certificates...");
 
-    let cert_conf = r#"
-[req]
-distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
-[req_distinguished_name]
-CN = localhost
-[v3_req]
-subjectAltName = DNS:localhost,IP:127.0.0.1,IP:::1
-"#;
-    fs::write("cert.conf", cert_conf.trim())?;
-
+    // --- ENTERPRISE FIX: Direkte SAN-Injektion ohne temporäre Config-Datei ---
     let openssl_status = Command::new("openssl")
         .args(&[
-            "req", "-x509", "-nodes", "-days", "365", "-newkey", "rsa:2048",
+            "req", "-x509", "-nodes", "-days", "365", "-newkey", "rsa:4096",
             "-keyout", "certs/server.key",
             "-out", "certs/server.crt",
-            "-config", "cert.conf"
+            "-subj", "/C=DE/ST=Berlin/L=Berlin/O=Pytja Enterprise/CN=localhost",
+            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:0.0.0.0"
         ])
         .output()?;
-
-    let _ = fs::remove_file("cert.conf");
 
     if !openssl_status.status.success() {
         return Err(anyhow!("Failed to generate certificates. Check OpenSSL installation."));

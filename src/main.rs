@@ -21,6 +21,7 @@ enum Commands {
         output: Option<String>,
     },
     Admin,
+    Bootstrap,
 }
 
 #[tokio::main]
@@ -39,6 +40,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Admin) => {
             pytja_admin::start_admin().await?;
+
+        }
+        Some(Commands::Bootstrap) => {
+            bootstrap::run_enterprise_wizard().await?;
         }
         None => {
             bootstrap::run_enterprise_wizard().await?;

@@ -1,31 +1,19 @@
-# --- SERVER CONFIG. ---
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 50051
 
-# --- DATABASE (Primary) ---
 [database]
-primary_url = "postgres://pytja:securepass@db:5432/pytja_db"
+primary_url = "sqlite://data/pytja.db"
 
-# --- REDIS (Session Cache) ---
-[redis]
-url = "redis://127.0.0.1/"
-
-# --- STORAGE (Dateispeicher) ---
 [storage]
-# Choose "fs" (FileSystem) or "s3"
 storage_type = "fs"
-local_path = "storage_blobs"
-# s3_bucket = "my-bucket"
-# s3_region = "eu-central-1"
+local_path = "data/storage"
 
-# --- PATHS ---
-[paths]
-logs_dir = "logs"             # Server-Logs
-mounts_file = "mounts.json"   # Config. for aditional DB-Mounts
-
-# --- SECURITY (TLS/SSL) ---
 [tls]
 enabled = true
 cert_path = "certs/server.crt"
 key_path = "certs/server.key"
+
+[paths]
+logs_dir = "logs"
+mounts_file = "data/mounts.json"

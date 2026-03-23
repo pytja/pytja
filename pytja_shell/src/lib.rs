@@ -94,7 +94,7 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
 
     pb.set_message("Connecting to Enterprise Server...");
 
-    let server_url = "https://localhost:50051".to_string();
+    let server_url = "https://127.0.0.1:50051".to_string();
     let key_bytes = signing_key.to_bytes().to_vec();
 
     let e2e_key = CryptoService::derive_e2e_key(&key_bytes);
