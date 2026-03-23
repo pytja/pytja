@@ -177,13 +177,18 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
         config: config.clone(),
         storage,
         log_broadcast: tx.clone(),
-        plugins: plugin_manager, // --- NEU: Zuweisung in die Struktur ---
+        plugins: plugin_manager,
     };
 
-    let _addr_str = format!("{}:{}", config.server.host, config.server.port);
+    let host = std::env::var("PYTJA_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("PYTJA_PORT").unwrap_or_else(|_| "50051".to_string());
+    let addr_str = format!("{}:{}", host, port);
 
-    let addr: std::net::SocketAddr = "[::]:50051".parse()
-        .expect("CRITICAL: Invalid Dual-Stack Address");
+    use std::net::ToSocketAddrs;
+    let addr = addr_str.to_socket_addrs()
+        .expect("CRITICAL: Failed to resolve address")
+        .next()
+        .expect("CRITICAL: No valid IP address found for host");
 
     let mut builder = Server::builder()
         .http2_keepalive_interval(Some(std::time::Duration::from_secs(60)))
