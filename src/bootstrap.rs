@@ -56,19 +56,43 @@ async fn provision_infrastructure() -> Result<Option<String>> {
 
     println!("Generating zero-trust TLS certificates...");
 
-    // --- ENTERPRISE FIX: Direkte SAN-Injektion ohne temporäre Config-Datei ---
+    // --- ENTERPRISE FIX: LibreSSL (macOS) Compatible SAN Injection ---
+    let cert_conf = r#"
+[req]
+default_bits = 4096
+prompt = no
+default_md = sha256
+distinguished_name = dn
+x509_extensions = v3_ext
+
+[dn]
+C = DE
+CN = localhost
+
+[v3_ext]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+IP.2 = 0.0.0.0
+"#;
+    fs::write("cert.conf", cert_conf.trim())?;
+
     let openssl_status = Command::new("openssl")
         .args(&[
             "req", "-x509", "-nodes", "-days", "365", "-newkey", "rsa:4096",
             "-keyout", "certs/server.key",
             "-out", "certs/server.crt",
-            "-subj", "/C=DE/ST=Berlin/L=Berlin/O=Pytja Enterprise/CN=localhost",
-            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:0.0.0.0"
+            "-config", "cert.conf"
         ])
         .output()?;
 
+    let _ = fs::remove_file("cert.conf");
+
     if !openssl_status.status.success() {
-        return Err(anyhow!("Failed to generate certificates. Check OpenSSL installation."));
+        let stderr = String::from_utf8_lossy(&openssl_status.stderr);
+        return Err(anyhow!("Failed to generate certificates: {}", stderr));
     }
 
     let toml_content = r#"

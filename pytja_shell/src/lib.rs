@@ -104,7 +104,7 @@ pub async fn start_shell(identity_path: Option<String>) -> anyhow::Result<()> {
         Err(e) => {
             pb.finish_and_clear();
             println!("{}", "CONNECTION FAILED".red().bold());
-            println!("Error: {}", e);
+            println!("Error: {:?}", e);
             return Ok(());
         }
     };
