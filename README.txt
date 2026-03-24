@@ -15,6 +15,14 @@ Welcome to the Pytja release. This binary is compiled for maximum
 performance and features an automated deployment wizard for macOS, Linux,
 and Windows.
 
+Pytja is a deterministic, WASM-powered data engine and plugin architecture
+engineered for bare-metal performance and zero-trust isolation.
+
+[PRE-RELEASE ARCHITECTURE]
+Pytja is currently in active early development. While the core WASM engine
+and sandbox isolation are functional, the system has not yet been certified
+for mission-critical production workloads. Please test thoroughly in sandboxed
+environments before deploying to live infrastructure.
 
 1. SYSTEM REQUIREMENTS
 --------------------------------------------------------------------------------
