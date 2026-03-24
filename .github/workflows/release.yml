@@ -1,4 +1,4 @@
-name: Pytja Enterprise Release Pipeline
+name: Pytja Release Pipeline
 
 on:
   push:
@@ -49,6 +49,7 @@ jobs:
           cp README.txt ${{ matrix.target_dir }}/
           chmod +x ${{ matrix.target_dir }}/${{ matrix.target_dir }}
           zip -r ${{ matrix.target_dir }}.zip ${{ matrix.target_dir }}
+          shasum -a 256 ${{ matrix.target_dir }}.zip > ${{ matrix.target_dir }}.zip.sha256
 
       - name: Prepare Windows Artifacts
         if: matrix.os == 'windows-latest'
@@ -58,10 +59,14 @@ jobs:
           Copy-Item -Path "target\release\${{ matrix.bin_name }}" -Destination "${{ matrix.target_dir }}\${{ matrix.target_dir }}.exe"
           Copy-Item -Path "README.txt" -Destination "${{ matrix.target_dir }}\"
           Compress-Archive -Path "${{ matrix.target_dir }}" -DestinationPath "${{ matrix.target_dir }}.zip"
+          $hash = (Get-FileHash "${{ matrix.target_dir }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.target_dir }}.zip" | Out-File -FilePath "${{ matrix.target_dir }}.zip.sha256" -Encoding ascii
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ matrix.target_dir }}.zip
+          files: |
+            ${{ matrix.target_dir }}.zip
+            ${{ matrix.target_dir }}.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
